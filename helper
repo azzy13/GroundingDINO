@@ -1,0 +1,10 @@
+CUDA_VISIBLE_DEVICES=0 python demo/inference_on_a_image.py \
+-c groundingdino/config/GroundingDINO_SwinT_OGC.py \
+-p weights/groundingdino_swint_ogc.pth \
+-i /isis/home/hasana3/vlmtest/GroundingDINO/new_image.jpg \
+-o "./output" \
+-t "car or truck"
+
+CUDA_VISIBLE_DEVICES=0 python demo/inference_on_video.py \
+  --video ./videos/car2.mp4 \
+  --output ./outputs/annotated_car2.mp4

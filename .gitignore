@@ -144,3 +144,6 @@ grounding/version.py
 
 vis/
 tmp/
+videos/
+weights/
+*.jpg
