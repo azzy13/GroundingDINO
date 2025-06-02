@@ -8,3 +8,38 @@ CUDA_VISIBLE_DEVICES=0 python demo/inference_on_a_image.py \
 CUDA_VISIBLE_DEVICES=0 python demo/inference_on_video.py \
   --video ./videos/car2.mp4 \
   --output ./outputs/annotated_car2.mp4
+  --fp16
+
+
+--fp16
+✅ Frame 8733 - Inference: 0.066s
+🎬 Video saved to: ./output/CarHDfield.mp4
+===================================
+Total Frames: 8733
+Total Inference Time: 571.77s
+Average Inference Time per Frame: 0.0655s
+Effective FPS: 15.27
+Total Wall Clock Time: 835.18s
+===================================
+
+--fp16
+✅ Frame 1705 - Inference: 0.065s
+🎬 Video saved to: ./output/airsim.mp4
+===================================
+Total Frames: 1705
+Total Inference Time: 112.03s
+Average Inference Time per Frame: 0.0657s
+Effective FPS: 15.22
+Total Wall Clock Time: 156.02s
+===================================
+
+--no-fp16
+✅ Frame 1705 - Inference: 0.083s
+🎬 Video saved to: ./output/airsim.mp4
+===================================
+Total Frames: 1705
+Total Inference Time: 140.24s
+Average Inference Time per Frame: 0.0823s
+Effective FPS: 12.16
+Total Wall Clock Time: 174.79s
+===================================
