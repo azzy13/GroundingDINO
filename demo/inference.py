@@ -12,9 +12,9 @@ from torch.cuda.amp import autocast
 
 CONFIG_PATH = "groundingdino/config/GroundingDINO_SwinT_OGC.py"
 WEIGHTS_PATH = "weights/groundingdino_swint_ogc.pth"
-TEXT_PROMPT = "car . truck . bus ."
-BOX_THRESHOLD = 0.35
-TEXT_THRESHOLD = 0.25
+TEXT_PROMPT = "trucks. cars."
+BOX_THRESHOLD = 0.25
+TEXT_THRESHOLD = 0.2
 
 transform = T.Compose([
     T.Resize(800),
@@ -32,21 +32,32 @@ def preprocess_frame(frame, use_fp16=False):
 def convert_dino_boxes_to_detections(boxes, logits, image_w, image_h):
     dets = []
     for box, logit in zip(boxes, logits):
-        x1, y1, x2, y2 = box[0] * image_w, box[1] * image_h, box[2] * image_w, box[3] * image_h
+        cx, cy, w, h = box
         score = float(logit)
 
-        tl_x, tl_y = min(x1, x2), min(y1, y2)
-        w, h = abs(x2 - x1), abs(y2 - y1)  # Width and height instead of bottom-right coordinates
+        x1 = (cx - w / 2) * image_w
+        y1 = (cy - h / 2) * image_h
+        x2 = (cx + w / 2) * image_w
+        y2 = (cy + h / 2) * image_h
 
-        dets.append([tl_x, tl_y, w, h, score])
+        # Filter clearly invalid boxes
+        if w > 0.8 or h > 0.8 or w <= 0 or h <= 0:
+            continue
+
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(image_w - 1, x2), min(image_h - 1, y2)
+
+        dets.append([x1, y1, x2, y2, score])
     return np.array(dets)
 
+
+
 class TrackerArgs:
-    track_thresh = 0.25
-    track_buffer = 30
-    match_thresh = 0.8
+    track_thresh = 0.3
+    track_buffer = 60
+    match_thresh = 0.7
     aspect_ratio_thresh = 10.0
-    min_box_area = 1
+    min_box_area = 100
     mot20 = False
 
 def draw_tracks(image, tracks):
@@ -109,9 +120,17 @@ def main(video_path, output_path, use_fp16=False):
             torch.cuda.synchronize()
             infer_time = time.time() - start_infer
             total_infer_time += infer_time
+            
+            # print("DINO boxes:", boxes)
+            # print("DINO logits:", logits)
+            # print("Width:", width, "Height:", height)
 
             detections = convert_dino_boxes_to_detections(boxes, logits, width, height)
-            online_targets = tracker.update(detections, [height, width], [width, height])
+            if detections is None or len(detections) == 0:
+                online_targets = []
+            else:
+                online_targets = tracker.update(detections, [height, width], [height, width])
+
 
             for t in online_targets:
                 x, y, w, h = t.tlwh
