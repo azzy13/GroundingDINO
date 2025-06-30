@@ -1,3 +1,4 @@
+# vanilla dino
 CUDA_VISIBLE_DEVICES=0 python demo/inference_on_a_image.py \
 -c groundingdino/config/GroundingDINO_SwinT_OGC.py \
 -p weights/groundingdino_swint_ogc.pth \
@@ -5,13 +6,17 @@ CUDA_VISIBLE_DEVICES=0 python demo/inference_on_a_image.py \
 -o "./output" \
 -t "car or truck"
 
-CUDA_VISIBLE_DEVICES=0 python demo/inference_on_video.py \
+# detection with dino
+python3 demo/inference_on_video.py \
   --video ./videos/car2.mp4 \
-  --output ./outputs/annotated_car2.mp4
-  --fp16
+  --output ./outputs/annotated_car2.mp4 --fp16
+
+# bytetrack added
+python3 demo/inference.py --video ./videos/car2.mp4 --output ./outputs/annotated_car2.mp4 --fp16
 
 
---fp16
+
+# fp16 magic
 ✅ Frame 8733 - Inference: 0.066s
 🎬 Video saved to: ./output/CarHDfield.mp4
 ===================================

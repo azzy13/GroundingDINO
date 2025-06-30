@@ -10,8 +10,8 @@ from groundingdino.util.inference import load_model, predict
 from tracker.byte_tracker import BYTETracker
 from torch.cuda.amp import autocast
 
-CONFIG_PATH = "groundingdino/config/GroundingDINO_SwinT_OGC.py"
-WEIGHTS_PATH = "weights/groundingdino_swint_ogc.pth"
+CONFIG_PATH = "groundingdino/config/GroundingDINO_SwinB_cfg.py"
+WEIGHTS_PATH = "weights/groundingdino_swinb_cogcoor.pth"
 TEXT_PROMPT = "trucks. cars."
 BOX_THRESHOLD = 0.25
 TEXT_THRESHOLD = 0.2
