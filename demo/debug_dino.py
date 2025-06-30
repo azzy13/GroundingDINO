@@ -1,55 +1,90 @@
 import cv2
 import numpy as np
-from PIL import Image
-import torchvision.transforms as T
-import torch
-from groundingdino.util.inference import load_model, predict
+import os
+from datetime import datetime
 
-# —— CONFIG ——
-CONFIG_PATH = "groundingdino/config/GroundingDINO_SwinT_OGC.py"
-WEIGHTS_PATH = "weights/groundingdino_swint_ogc.pth"
-TEXT_PROMPT   = "vehicles."  # more generic
-BOX_THRESHOLD = 0.15       # much lower
-TEXT_THRESHOLD= 0.15      # much lower
+# --- Config ---
+img_dir = '/isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/image_02/0018'
+gt_file = '/isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/label_02/0018.txt'
+track_file = '/isis/home/hasana3/vlmtest/GroundingDINO/outputs/2025-06-30_0317/inference_results/0018.txt'
 
-transform = T.Compose([
-    T.Resize(800),
-    T.ToTensor(),
-    T.Normalize(mean=[0.485,0.456,0.406],std=[0.229,0.224,0.225])
-])
+# --- KITTI GT Parser ---
+def parse_kitti_txt(file_path, frame_id, valid_classes=('Car', 'Van', 'Truck', 'Pedestrian', 'Person')):
+    boxes = []
+    with open(file_path) as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) < 15:
+                continue
+            if int(parts[0]) != frame_id:
+                continue
+            label = parts[2]
+            if label not in valid_classes:
+                continue
+            x1, y1, x2, y2 = map(float, parts[6:10])
+            tid = parts[1]
+            boxes.append((x1, y1, x2 - x1, y2 - y1, tid))
+    return boxes
 
-# —— Load model once ——
-model = load_model(CONFIG_PATH, WEIGHTS_PATH).cuda().eval()
+# --- Tracker Output (MOT Format) Parser ---
+def parse_mot_txt(file_path, frame_id):
+    boxes = []
+    with open(file_path) as f:
+        for line in f:
+            parts = line.strip().split(',')
+            if len(parts) < 6:
+                continue
+            if int(parts[0]) != frame_id:
+                continue
+            x, y, w, h = map(float, parts[2:6])
+            tid = parts[1]
+            boxes.append((x, y, w, h, tid))
+    return boxes
 
-# —— Inference on one image ——
-img_path = "/isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/image_02/0018/000095.png"
-img_bgr  = cv2.imread(img_path)
-H, W     = img_bgr.shape[:2]
+# --- Visualization ---
+def vis_frame(img_path, gt_file, track_file, frame_id, save_dir):
+    img = cv2.imread(img_path)
+    if img is None:
+        print(f"Could not read image: {img_path}")
+        return
 
-# to tensor
-img_pil   = Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
-img_t     = transform(img_pil).cuda().unsqueeze(0)  # note batch-dim
+    H, W = img.shape[:2]
 
-# predict
-with torch.no_grad():
-    boxes, logits, _ = predict(
-        model=model, image=img_t[0],
-        caption=TEXT_PROMPT,
-        box_threshold=BOX_THRESHOLD,
-        text_threshold=TEXT_THRESHOLD
-    )
+    # Draw dummy box for sanity check
+    cv2.rectangle(img, (10, 10), (200, 200), (0, 255, 0), 2)
 
-print(f"Raw boxes: {boxes.shape}, logits: {logits.shape}")
+    # Ground Truth (green)
+    gt_boxes = parse_kitti_txt(gt_file, frame_id)
+    for x, y, ww, hh, _ in gt_boxes:
+        x1, y1, x2, y2 = int(x), int(y), int(x + ww), int(y + hh)
+        if 0 <= x1 < W and 0 <= y1 < H and 0 < x2 <= W and 0 < y2 <= H:
+            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(img, 'GT', (x1, y1 - 5), 0, 0.7, (0, 255, 0), 2)
 
-# draw them
-for (cx,cy,w,h), score in zip(boxes, logits):
-    x1 = int((cx - w/2)*W)
-    y1 = int((cy - h/2)*H)
-    x2 = int((cx + w/2)*W)
-    y2 = int((cy + h/2)*H)
-    cv2.rectangle(img_bgr, (x1,y1),(x2,y2),(0,0,255),2)
-    cv2.putText(img_bgr,f"{score:.2f}",(x1,y1-5),
-                cv2.FONT_HERSHEY_SIMPLEX,0.5,(0,0,255),1)
+    # Tracker (red, with ID)
+    track_boxes = parse_mot_txt(track_file, frame_id)
+    for x, y, ww, hh, tid in track_boxes:
+        x1, y1, x2, y2 = int(x), int(y), int(x + ww), int(y + hh)
+        if 0 <= x1 < W and 0 <= y1 < H and 0 < x2 <= W and 0 < y2 <= H:
+            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 2)
+            cv2.putText(img, f'ID:{tid}', (x1, y2 + 20), 0, 0.7, (0, 0, 255), 2)
 
-cv2.imwrite("debug_dino_vis.png", img_bgr)
-print("Wrote debug_dino_vis.png")
+    out_path = os.path.join(save_dir, f"frame_{frame_id:06d}.jpg")
+    cv2.imwrite(out_path, img)
+    print(f"Saved visualized frame to {out_path}")
+
+# --- Create output folder with timestamp ---
+timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+base_save_dir = "debug_vis"
+save_dir = os.path.join(base_save_dir, timestamp)
+os.makedirs(save_dir, exist_ok=True)
+print(f"Saving all visualizations to {save_dir}")
+
+# --- Run for a few frames ---
+for frame in range(100, 110):   # Check frames 100–109
+    img_file = f"{img_dir}/{str(frame).zfill(6)}.png"
+    print(f"\nVisualizing frame: {img_file}")
+    if not os.path.exists(img_file):
+        print(f"File not found: {img_file}")
+        continue
+    vis_frame(img_file, gt_file, track_file, frame, save_dir)

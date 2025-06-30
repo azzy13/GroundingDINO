@@ -1,3 +1,4 @@
+# Quick Commands
 # vanilla dino
 CUDA_VISIBLE_DEVICES=0 python demo/inference_on_a_image.py \
 -c groundingdino/config/GroundingDINO_SwinT_OGC.py \
@@ -18,7 +19,10 @@ python3 demo/inference.py --video ./videos/car2.mp4 --output ./outputs/annotated
 python3 demo/test_ap_on_coco.py -c groundingdino/config/GroundingDINO_SwinB_cfg.py -p weights/groundingdino_swinb_cogcoor.pth --anno_path /isis/home/hasana3/vlmtest/GroundingDINO/dataset/coco/annotations/instances_val2017.json --image_dir /isis/home/hasana3/vlmtest/GroundingDINO/dataset/coco/val2017
 
 # eval on kitti
+python3 eval/eval.py --fp16
 
+# eval on visdrone
+python3 eval/eval_visdrone.py --fp16 --images /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone/VisDrone2019-MOT-val/sequences --labels /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone/VisDrone2019-MOT-val/annotations
 
 # fp16 magic
 ✅ Frame 8733 - Inference: 0.066s
@@ -72,3 +76,32 @@ IoU metric: bbox
  Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.918
 Final results: [0.5689566063791862, 0.7424579592071914, 0.6256690329199213, 0.40093975470857285, 0.6111063460867908, 0.7259646325014645, 0.41427950774607114, 0.7050418105018963, 0.7742221721138068, 0.6216316172058686, 0.8148647325828953, 0.9183224493376235]
 
+# swinb on kitti 
+Saved tracking results for 0020 to outputs/2025-06-30_0317/inference_results/0020.txt
+      num_frames      MOTA     MOTP      IDF1  IDs
+0015         376  0.372502  0.26394  0.543982   77
+      num_frames      MOTA      MOTP      IDF1  IDs
+0016         209  0.100594  0.320059  0.158218  209
+      num_frames      MOTA      MOTP      IDF1  IDs
+0018         325  0.597311  0.230367  0.785566   35
+      num_frames      MOTA      MOTP      IDF1  IDs
+0019        1059  0.217353  0.263309  0.262637  602
+      num_frames      MOTA     MOTP      IDF1  IDs
+0020         837  0.368051  0.25565  0.506222  266
+
+Average MOTA: 0.331
+
+# without downsampling
+Saved tracking results for 0020 to outputs/2025-06-30_0327/inference_results/0020.txt
+      num_frames      MOTA      MOTP      IDF1  IDs
+0015         376  0.341005  0.215178  0.556634   63
+      num_frames      MOTA      MOTP      IDF1  IDs
+0016         209  0.152986  0.290162  0.176544  230
+      num_frames      MOTA      MOTP      IDF1  IDs
+0018         323  0.670205  0.148644  0.815595   37
+      num_frames      MOTA      MOTP      IDF1  IDs
+0019        1059  0.217478  0.267209  0.267669  542
+      num_frames      MOTA      MOTP      IDF1  IDs
+0020         837  0.378513  0.178109  0.521797  245
+
+Average MOTA: 0.352

@@ -12,7 +12,6 @@ import torchvision.transforms as T
 from groundingdino.util.inference import load_model, predict
 from tracker.byte_tracker import BYTETracker
 from torch.cuda.amp import autocast
-import torch.nn.functional as F
 
 # === Configurable constants ===
 CONFIG_PATH = "groundingdino/config/GroundingDINO_SwinB_cfg.py"
@@ -20,35 +19,20 @@ WEIGHTS_PATH = "weights/groundingdino_swinb_cogcoor.pth"
 TEXT_PROMPT = "car. truck. van. person. pedestrian."
 BOX_THRESHOLD = 0.25
 TEXT_THRESHOLD = 0.2
-TRACK_THRESH = 0.5
+TRACK_THRESH = 0.4
 TRACK_BUFFER = 100
 MATCH_THRESH = 0.6
 MIN_BOX_AREA = 10
-FRAME_RATE = 10
-
-# --- No more static TARGET_SIZE!
+FRAME_RATE = 30  # VisDrone typical
 
 transform = T.Compose([
     T.ToTensor(),
     T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
-def letterbox(tensor, size):
-    _, h, w = tensor.shape
-    scale = min(size[0] / h, size[1] / w)
-    resized = F.interpolate(tensor.unsqueeze(0), scale_factor=scale, mode='bilinear', align_corners=False)[0]
-    pad_h = size[0] - resized.shape[1]
-    pad_w = size[1] - resized.shape[2]
-    top, bottom = pad_h // 2, pad_h - pad_h // 2
-    left, right = pad_w // 2, pad_w - pad_w // 2
-    return F.pad(resized, (left, right, top, bottom), value=0.0)
-
 def preprocess_frame(frame, use_fp16=False):
-    # Get frame’s native size for dynamic processing
-    h, w = frame.shape[:2]
     img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
     tensor = transform(img).cuda()
-    tensor = letterbox(tensor, size=(h, w))  # Now using original image size!
     return tensor.half() if use_fp16 else tensor
 
 def convert_dino_boxes_to_detections(boxes, logits, W, H):
@@ -65,21 +49,32 @@ def convert_dino_boxes_to_detections(boxes, logits, W, H):
         dets.append([max(0,x1), max(0,y1), min(W-1,x2), min(H-1,y2), score])
     return np.array(dets) if dets else np.empty((0,5))
 
-def combine_gt_local(label_folder, out_folder):
+def combine_gt_visdrone(label_folder, out_folder):
+    """
+    Converts VisDrone MOT val annotations to MOT format used by motmetrics:
+    frame_id, track_id, x, y, w, h, 1, -1, -1, -1
+    """
     os.makedirs(out_folder, exist_ok=True)
-    for gt_file in glob.glob(os.path.join(label_folder, "*.txt")):
-        seq = os.path.splitext(os.path.basename(gt_file))[0]
+    for ann_file in glob.glob(os.path.join(label_folder, "*.txt")):
+        seq = os.path.splitext(os.path.basename(ann_file))[0]
         out_path = os.path.join(out_folder, f"{seq}.txt")
-        with open(gt_file) as f_in, open(out_path, 'w') as f_out:
-            for line in f_in:
-                parts = line.split()
-                frame = int(parts[0]); tid=int(parts[1]); cls=parts[2]
-                if cls not in ("Car","Van","Truck","Pedestrian","Person"): continue
-                x1,y1,x2,y2 = map(float, parts[6:10])
-                w,h = x2-x1, y2-y1
-                f_out.write(f"{frame},{tid},{x1:.2f},{y1:.2f},{w:.2f},{h:.2f},1,-1,-1,-1\n")
+        with open(ann_file) as fin, open(out_path, 'w') as fout:
+            for line in fin:
+                parts = line.strip().split(',')
+                if len(parts) < 8:
+                    continue
+                frame = int(parts[0])
+                tid = int(parts[1])
+                x, y, w, h = map(float, parts[2:6])
+                vis = int(parts[8])
+                cls = int(parts[7])
+                # Filter: only "fully visible" and real targets (person, car, etc.)
+                # VisDrone: cls in [0..10], 0=ignored, 1=pedestrian, 2=people, 3=bicycle, 4=car, 5=van, ...
+                if tid <= 0 or vis == 0 or cls == 0:
+                    continue
+                fout.write(f"{frame},{tid},{x:.2f},{y:.2f},{w:.2f},{h:.2f},1,-1,-1,-1\n")
 
-def run_inference_local(img_folder, res_folder, use_fp16=False):
+def run_inference_visdrone(img_folder, res_folder, use_fp16=False):
     model = load_model(CONFIG_PATH, WEIGHTS_PATH).cuda().eval()
     os.makedirs(res_folder, exist_ok=True)
     for seq in sorted(os.listdir(img_folder)):
@@ -98,17 +93,18 @@ def run_inference_local(img_folder, res_folder, use_fp16=False):
             frame_rate=FRAME_RATE
         )
         out_file = os.path.join(res_folder, f"{seq}.txt")
+        frame_list = sorted(os.listdir(seq_path))
+        for fname in frame_list[:3]:
+            print("Sample image for debug:", os.path.join(seq_path, fname))
         with open(out_file, 'w') as f_res:
             for frame_name in sorted(os.listdir(seq_path)):
+                if not (frame_name.endswith(".jpg") or frame_name.endswith(".png")):
+                    continue
                 frame_id = int(os.path.splitext(frame_name)[0])
                 img = cv2.imread(os.path.join(seq_path, frame_name))
                 orig_h, orig_w = img.shape[:2]
-                tensor = preprocess_frame(img, use_fp16)  # Uses original image size!
-                _, proc_h, proc_w = tensor.shape
-
-                if frame_id < 5:
-                    print(f"Frame {frame_id}: Original size={orig_h}x{orig_w}, Processed size={proc_h}x{proc_w}")
-
+                tensor = preprocess_frame(img, use_fp16)
+                # Model input is (orig_h, orig_w)
                 with torch.no_grad(), autocast(enabled=use_fp16):
                     boxes, logits, _ = predict(
                         model=model, image=tensor,
@@ -142,20 +138,21 @@ def eval_all(gt_folder, res_folder):
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
-    p.add_argument('--images',default="/isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/image_02")
-    p.add_argument('--labels', default="/isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/label_02")
+    p.add_argument('--images', required=True)
+    p.add_argument('--labels', required=True)
     p.add_argument('--fp16', action='store_true')
     args = p.parse_args()
 
+    # --- Make output subfolder with timestamp ---
     timestamp = datetime.now().strftime('%Y-%m-%d_%H%M')
     base_outdir = "outputs"
-    run_outdir = os.path.join(base_outdir, timestamp)
+    run_outdir = os.path.join(base_outdir, f"visdrone_{timestamp}")
     os.makedirs(run_outdir, exist_ok=True)
     out_gt = os.path.join(run_outdir, 'gt_local')
     out_res = os.path.join(run_outdir, 'inference_results')
 
     print(f"\nAll outputs for this run will be saved in: {run_outdir}\n")
 
-    combine_gt_local(args.labels, out_gt)
-    run_inference_local(args.images, out_res, args.fp16)
+    combine_gt_visdrone(args.labels, out_gt)
+    run_inference_visdrone(args.images, out_res, args.fp16)
     eval_all(out_gt, out_res)
