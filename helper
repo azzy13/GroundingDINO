@@ -14,6 +14,10 @@ python3 demo/inference_on_video.py \
 # bytetrack added
 python3 demo/inference.py --video ./videos/car2.mp4 --output ./outputs/annotated_car2.mp4 --fp16
 
+# eval on coco 2017
+python3 demo/test_ap_on_coco.py -c groundingdino/config/GroundingDINO_SwinB_cfg.py -p weights/groundingdino_swinb_cogcoor.pth --anno_path /isis/home/hasana3/vlmtest/GroundingDINO/dataset/coco/annotations/instances_val2017.json --image_dir /isis/home/hasana3/vlmtest/GroundingDINO/dataset/coco/val2017
+
+# eval on kitti
 
 
 # fp16 magic
@@ -48,3 +52,23 @@ Average Inference Time per Frame: 0.0823s
 Effective FPS: 12.16
 Total Wall Clock Time: 174.79s
 ===================================
+
+# results
+# swinb on coco 2017 eval
+Accumulating evaluation results...
+DONE (t=10.98s).
+IoU metric: bbox
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.569
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets=100 ] = 0.742
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets=100 ] = 0.626
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.401
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.611
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.726
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=  1 ] = 0.414
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 10 ] = 0.705
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.774
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.622
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.815
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.918
+Final results: [0.5689566063791862, 0.7424579592071914, 0.6256690329199213, 0.40093975470857285, 0.6111063460867908, 0.7259646325014645, 0.41427950774607114, 0.7050418105018963, 0.7742221721138068, 0.6216316172058686, 0.8148647325828953, 0.9183224493376235]
+
