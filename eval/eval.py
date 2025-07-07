@@ -13,11 +13,12 @@ from groundingdino.util.inference import load_model, predict
 from tracker.byte_tracker import BYTETracker
 from torch.cuda.amp import autocast
 import torch.nn.functional as F
+import pandas as pd
 
 # === Static config ===
 CONFIG_PATH = "groundingdino/config/GroundingDINO_SwinB_cfg.py"
 WEIGHTS_PATH = "weights/groundingdino_swinb_cogcoor.pth"
-TEXT_PROMPT = "car. truck. van. person. pedestrian."
+TEXT_PROMPT = "car. pedestrian."
 MIN_BOX_AREA = 10
 FRAME_RATE = 10
 
@@ -66,7 +67,7 @@ def combine_gt_local(label_folder, out_folder):
             for line in f_in:
                 parts = line.split()
                 frame = int(parts[0]); tid=int(parts[1]); cls=parts[2]
-                if cls not in ("Car","Van","Truck","Pedestrian","Person"): continue
+                if cls not in ("Car","Pedestrian"): continue
                 x1,y1,x2,y2 = map(float, parts[6:10])
                 w,h = x2-x1, y2-y1
                 f_out.write(f"{frame},{tid},{x1:.2f},{y1:.2f},{w:.2f},{h:.2f},1,-1,-1,-1\n")
@@ -119,28 +120,50 @@ def run_inference_local(img_folder, res_folder, box_thresh, text_thresh, track_t
 
 def eval_all(gt_folder, res_folder):
     gt_files = sorted(glob.glob(os.path.join(gt_folder, "*.txt")))
-    res_files= sorted(glob.glob(os.path.join(res_folder,"*.txt")))
-    motas = []
+    res_files = sorted(glob.glob(os.path.join(res_folder, "*.txt")))
+
+    all_metrics = [
+        'num_frames', 'mota', 'motp', 'idf1', 'idp', 'idr',
+        'precision', 'recall', 'num_switches',
+        'mostly_tracked', 'mostly_lost', 'num_fragmentations',
+        'num_false_positives', 'num_misses', 'num_objects'
+    ]
+
+    mh = mm.metrics.create()
+    all_summaries = []
+
     for gt_f, res_f in zip(gt_files, res_files):
         seq = os.path.basename(gt_f)[:-4]
-        gt= mm.io.loadtxt(gt_f, fmt='mot15-2D', min_confidence=1)
-        res= mm.io.loadtxt(res_f,fmt='mot15-2D')
-        acc= mm.utils.compare_to_groundtruth(gt,res,'iou',distth=0.5)
-        mh= mm.metrics.create()
-        summary= mh.compute(acc, metrics=['num_frames','mota','motp','idf1','num_switches'], name=seq)
-        print(mm.io.render_summary(summary, namemap=mm.io.motchallenge_metric_names))
-        motas.append(summary.loc[seq,'mota'])
-    print(f"\nAverage MOTA: {np.mean(motas):.3f}")
+        gt = mm.io.loadtxt(gt_f, fmt='mot15-2D', min_confidence=1)
+        res = mm.io.loadtxt(res_f, fmt='mot15-2D')
+        acc = mm.utils.compare_to_groundtruth(gt, res, 'iou', distth=0.5)
+        summary = mh.compute(acc, metrics=all_metrics, name=seq)
+        all_summaries.append(summary)
+        print(f"\n===== Sequence: {seq} =====")
+        print(mm.io.render_summary(
+            summary,
+            namemap=mm.io.motchallenge_metric_names,
+            formatters=mh.formatters,
+        ))
+
+    # Manual concatenation and average row
+    df_all = pd.concat(all_summaries)
+    avg_row = df_all.mean(numeric_only=True)
+    avg_row.name = 'AVG'
+    df_all = df_all.append(avg_row)
+
+    print("\n====== AVERAGE ACROSS SEQUENCES ======")
+    print(df_all)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--images', required=True)
-    parser.add_argument('--labels', required=True)
-    parser.add_argument('--box_threshold', type=float, default=0.25)
-    parser.add_argument('--text_threshold', type=float, default=0.2)
-    parser.add_argument('--track_thresh', type=float, default=0.5)
-    parser.add_argument('--match_thresh', type=float, default=0.6)
-    parser.add_argument('--track_buffer', type=int, default=100)
+    parser.add_argument('--images', default="/isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/image_02")
+    parser.add_argument('--labels', default="/isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/label_02")
+    parser.add_argument('--box_threshold', type=float, default=0.42)
+    parser.add_argument('--text_threshold', type=float, default=0.5)
+    parser.add_argument('--track_thresh', type=float, default=0.41)
+    parser.add_argument('--match_thresh', type=float, default=0.87)
+    parser.add_argument('--track_buffer', type=int, default=200)
     parser.add_argument('--outdir', type=str, default=None)
     parser.add_argument('--fp16', action='store_true')
     args = parser.parse_args()

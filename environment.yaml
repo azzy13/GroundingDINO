@@ -1,4 +1,4 @@
-name: dino
+name: dino2
 channels:
   - pytorch
   - nvidia
