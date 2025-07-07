@@ -148,3 +148,5 @@ videos/
 weights/
 *.jpg
 dataset/
+*tmp_*/
+debug*/
