@@ -21,6 +21,9 @@ python3 demo/test_ap_on_coco.py -c groundingdino/config/GroundingDINO_SwinB_cfg.
 # eval on kitti
 python3 eval/eval.py --fp16
 
+# eval on MOT17
+python3 eval/eval_mot17.py --fp16
+
 # eval on visdrone
 python3 eval/eval_visdrone.py --fp16 --images /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone/VisDrone2019-MOT-val/sequences --labels /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone/VisDrone2019-MOT-val/annotations
 
