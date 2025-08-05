@@ -11,6 +11,7 @@ from tracker.byte_tracker import BYTETracker
 from torch.cuda.amp import autocast
 import torch.nn.functional as F
 
+
 CONFIG_PATH = "groundingdino/config/GroundingDINO_SwinB_cfg.py"
 WEIGHTS_PATH = "weights/groundingdino_swinb_cogcoor.pth"
 TEXT_PROMPT = "car. pedestrian."

@@ -3,6 +3,7 @@ import numpy as np
 import scipy
 import lap
 from scipy.spatial.distance import cdist
+import torch
 
 from tracker.ctra_kalman_filter import CTRAKalmanFilter
 
@@ -200,3 +201,25 @@ def fuse_score(cost_matrix, detections):
     fuse_sim = iou_sim * det_scores
     fuse_cost = 1 - fuse_sim
     return fuse_cost
+
+def embedding_iou_distance(tracks, detections, lambda_weight=0.5):
+    """
+    Combines CLIP embedding cosine distance with IoU distance for joint association.
+    If either embedding is missing, fallback to IoU only.
+    """
+    iou_cost = iou_distance(tracks, detections)
+    emb_cost = np.ones_like(iou_cost)  # Default max cost
+
+    for i, track in enumerate(tracks):
+        for j, det in enumerate(detections):
+            if hasattr(track, "embedding") and hasattr(det, "embedding"):
+                if track.embedding is not None and det.embedding is not None:
+                    sim = torch.nn.functional.cosine_similarity(
+                        track.embedding.unsqueeze(0).cuda(),
+                        det.embedding.unsqueeze(0).cuda()
+                    ).item()
+                    emb_cost[i, j] = 1.0 - sim  # Cosine distance
+
+    # Final fused cost
+    fused_cost = lambda_weight * emb_cost + (1.0 - lambda_weight) * iou_cost
+    return fused_cost
