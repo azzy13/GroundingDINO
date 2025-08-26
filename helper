@@ -15,6 +15,9 @@ python3 demo/inference_on_video.py \
 # bytetrack added
 python3 demo/inference.py --video ./videos/car2.mp4 --output ./outputs/annotated_car2.mp4 --fp16
 
+# with clip
+python3 demo/inference_w_clip.py --video ./videos/color.mp4 --output ./outputs/color.mp4 --fp16
+
 # eval on coco 2017
 python3 demo/test_ap_on_coco.py -c groundingdino/config/GroundingDINO_SwinB_cfg.py -p weights/groundingdino_swinb_cogcoor.pth --anno_path /isis/home/hasana3/vlmtest/GroundingDINO/dataset/coco/annotations/instances_val2017.json --image_dir /isis/home/hasana3/vlmtest/GroundingDINO/dataset/coco/val2017
 

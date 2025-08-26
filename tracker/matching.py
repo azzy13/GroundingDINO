@@ -4,6 +4,7 @@ import scipy
 import lap
 from scipy.spatial.distance import cdist
 import torch
+import torch.nn.functional as F
 
 from tracker.ctra_kalman_filter import CTRAKalmanFilter
 
@@ -202,24 +203,44 @@ def fuse_score(cost_matrix, detections):
     fuse_cost = 1 - fuse_sim
     return fuse_cost
 
-def embedding_iou_distance(tracks, detections, lambda_weight=0.5):
+def embedding_iou_distance(tracks, detections, lambda_weight=0.25, adaptive=True):
     """
-    Combines CLIP embedding cosine distance with IoU distance for joint association.
-    If either embedding is missing, fallback to IoU only.
+    Cosine -> [0,1] cost, clamp, and optionally adapt weight by IoU.
+    Lower = better. Returns a numpy float32 matrix.
     """
-    iou_cost = iou_distance(tracks, detections)
-    emb_cost = np.ones_like(iou_cost)  # Default max cost
+    iou_cost = iou_distance(tracks, detections).astype(np.float32)
+    emb_cost = np.ones_like(iou_cost, dtype=np.float32)  # default "max" cost
 
+    # Precompute to avoid per-cell CUDA churn
     for i, track in enumerate(tracks):
+        t_emb = getattr(track, "embedding", None)
+        if t_emb is None:
+            continue
+        # ensure 1-D, float, on same device for F.cosine_similarity
+        t_emb = t_emb.float().view(-1)
         for j, det in enumerate(detections):
-            if hasattr(track, "embedding") and hasattr(det, "embedding"):
-                if track.embedding is not None and det.embedding is not None:
-                    sim = torch.nn.functional.cosine_similarity(
-                        track.embedding.unsqueeze(0).cuda(),
-                        det.embedding.unsqueeze(0).cuda()
-                    ).item()
-                    emb_cost[i, j] = 1.0 - sim  # Cosine distance
+            d_emb = getattr(det, "embedding", None)
+            if d_emb is None:
+                continue
+            d_emb = d_emb.float().view(-1)
+            # put both on same device
+            device = t_emb.device
+            sim = F.cosine_similarity(
+                t_emb.unsqueeze(0).to(device),
+                d_emb.unsqueeze(0).to(device),
+                dim=-1
+            ).item()
+            # clamp for numerical safety and map to [0,1] cost
+            sim = max(min(sim, 1.0), -1.0)
+            emb_cost[i, j] = (1.0 - sim) * 0.5  # cos=-1->1.0, cos=1->0.0
 
-    # Final fused cost
-    fused_cost = lambda_weight * emb_cost + (1.0 - lambda_weight) * iou_cost
-    return fused_cost
+    if adaptive:
+        # Use less appearance when IoU is already strong; more when IoU is weak.
+        # Scale per-pair: weight_ij = lambda * (1 - (1 - iou_cost_ij)) = lambda * iou_cost_ij
+        # (since iou_cost = 1 - IoU). So when IoU high (iou_cost low) -> less emb weight.
+        w = lambda_weight * iou_cost  # same shape
+        fused = (1.0 - w) * iou_cost + w * emb_cost
+    else:
+        fused = lambda_weight * emb_cost + (1.0 - lambda_weight) * iou_cost
+
+    return fused.astype(np.float32)
