@@ -1,5 +1,6 @@
 import os
 import cv2
+from GroundingDINO.eval.eval_visdrone import TRACK_BUFFER
 import torch
 import numpy as np
 from PIL import Image
@@ -23,6 +24,7 @@ TRACK_THRESH    = 0.41    # LOWER so new tracks spawn
 MATCH_THRESH    = 0.87
 LAMBDA_WEIGHT   = 0.25
 TEXT_SIM_THRESH = 0.25    # keep disabled until stable (0.25 later if needed)
+TRACK_BUFFER    = 180     # frames to keep lost tracks
 
 DEBUG = True  # set False to silence periodic logs
 
@@ -34,7 +36,7 @@ transform = T.Compose([
 class TrackerArgs:
     def __init__(self,
                  track_thresh=TRACK_THRESH,
-                 track_buffer=180,
+                 track_buffer=TRACK_BUFFER,
                  match_thresh=MATCH_THRESH,
                  lambda_weight=LAMBDA_WEIGHT,
                  text_sim_thresh=TEXT_SIM_THRESH):

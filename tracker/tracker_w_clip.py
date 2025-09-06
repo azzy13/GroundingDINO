@@ -77,7 +77,7 @@ class STrack(BaseTrack):
             if self.embedding is None:
                 self.embedding = new_e
             else:
-                self.embedding = 0.9 * self.embedding + 0.1 * new_e
+                self.embedding = 0.95 * self.embedding + 0.05 * new_e
             self.embedding = self.embedding / (self.embedding.norm() + _EPS)
 
     @property

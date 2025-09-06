@@ -14,18 +14,25 @@ import pandas as pd
 
 from groundingdino.util.inference import load_model, predict
 from tracker.byte_tracker import BYTETracker as ByteTrackBaseline
-from tracker.tracker_w_clip import BYTETracker as ByteTrackCLIP  # your CLIP-fused tracker
+from tracker.tracker_w_clip import BYTETracker as ByteTrackCLIP
 import clip
 from torch.cuda.amp import autocast
 
 # =========================
-# Optuna-picked hyperparams (truncated as requested)
+# Optuna-picked hyperparams
 # =========================
-BOX_THRESHOLD   = 0.42
-TEXT_THRESHOLD  = 0.50
-TRACK_THRESH    = 0.41
-MATCH_THRESH    = 0.87
-TRACK_BUFFER    = 198
+#BOX_THRESHOLD   = 0.42
+#TEXT_THRESHOLD  = 0.50
+#TRACK_THRESH    = 0.41
+#MATCH_THRESH    = 0.87
+#TRACK_BUFFER    = 198
+BOX_THRESHOLD   = 0.49
+TEXT_THRESHOLD  = 0.20
+TRACK_THRESH    = 0.18
+MATCH_THRESH    = 0.85
+TRACK_BUFFER    = 180
+CLIP_LAMBDA_WEIGHT = 0.27
+CLIP_TEXT_SIM_THRESH = 0.17 
 
 # Other static config
 CONFIG_PATH = "groundingdino/config/GroundingDINO_SwinB_cfg.py"
@@ -33,10 +40,6 @@ WEIGHTS_PATH = "weights/groundingdino_swinb_cogcoor.pth"
 TEXT_PROMPT = "car. pedestrian."
 MIN_BOX_AREA = 10
 FRAME_RATE = 10
-
-# CLIP-fused specific knobs (kept stable across runs; not part of Optuna set)
-CLIP_LAMBDA_WEIGHT = 0.25
-CLIP_TEXT_SIM_THRESH = 0.00  # keep disabled for stability; turn on later if desired (e.g., 0.20)
 
 # =========================
 # Preprocessing

@@ -232,7 +232,8 @@ def embedding_iou_distance(tracks, detections, lambda_weight=0.25, adaptive=True
             ).item()
             # clamp for numerical safety and map to [0,1] cost
             sim = max(min(sim, 1.0), -1.0)
-            emb_cost[i, j] = (1.0 - sim) * 0.5  # cos=-1->1.0, cos=1->0.0
+            emb_cost[i, j] = (1.0 - sim) # cos=-1->1.0, cos=1->0.0
+            #emb_cost[i, j] = (1.0 - sim)
 
     if adaptive:
         # Use less appearance when IoU is already strong; more when IoU is weak.

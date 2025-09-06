@@ -10,10 +10,9 @@ from PIL import Image
 from datetime import datetime
 import torchvision.transforms as T
 from groundingdino.util.inference import load_model, predict
-from tracker.tracker_w_clip import BYTETracker
+from tracker.byte_tracker import BYTETracker
 from torch.cuda.amp import autocast
 import torch.nn.functional as F
-import clip
 import pandas as pd
 
 # === Static config ===
@@ -73,32 +72,8 @@ def combine_gt_local(label_folder, out_folder):
                 w,h = x2-x1, y2-y1
                 f_out.write(f"{frame},{tid},{x1:.2f},{y1:.2f},{w:.2f},{h:.2f},1,-1,-1,-1\n")
 
-def parse_classes(prompt: str):
-    return [c.strip() for c in prompt.split('.') if c.strip()]
-
-def build_text_embeddings(clip_model, device, classes):
-    with torch.no_grad():
-        tokens = clip.tokenize(classes).to(device)
-        with torch.cuda.amp.autocast(enabled=False):
-            te = clip_model.encode_text(tokens)
-        te = F.normalize(te.float(), dim=-1).contiguous()
-    return te  # [C,D] fp32 on device
-
-def build_image_embedding(clip_model, clip_preprocess, device, crop_bgr):
-    crop_pil = Image.fromarray(cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB))
-    clip_input = clip_preprocess(crop_pil).unsqueeze(0).to(device)
-    with torch.no_grad():
-        with torch.cuda.amp.autocast(enabled=False):
-            emb = clip_model.encode_image(clip_input)  # [1,D] fp32
-        emb = F.normalize(emb, dim=-1).squeeze(0).float().cpu()
-    return emb  # CPU fp32 [D]
-
-def run_inference_local(img_folder, res_folder, box_thresh, text_thresh, track_thresh, match_thresh, lambda_weight, text_sim_weight, track_buffer, use_fp16=False):
-    device = "cuda"
+def run_inference_local(img_folder, res_folder, box_thresh, text_thresh, track_thresh, match_thresh, track_buffer, use_fp16=False):
     model = load_model(CONFIG_PATH, WEIGHTS_PATH).cuda().eval()
-    clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
-    classes = parse_classes(TEXT_PROMPT) or ["object"]
-    text_emb = build_text_embeddings(clip_model, device, classes)  # [C,D] fp32
     os.makedirs(res_folder, exist_ok=True)
     for seq in sorted(os.listdir(img_folder)):
         seq_path = os.path.join(img_folder, seq)
@@ -111,8 +86,6 @@ def run_inference_local(img_folder, res_folder, box_thresh, text_thresh, track_t
                 match_thresh=match_thresh,
                 aspect_ratio_thresh=10.0,
                 min_box_area=MIN_BOX_AREA,
-                lambda_weight=lambda_weight,
-                text_sim_thresh=text_sim_weight,
                 mot20=False
             ),
             frame_rate=FRAME_RATE
@@ -137,23 +110,7 @@ def run_inference_local(img_folder, res_folder, box_thresh, text_thresh, track_t
                         text_threshold=text_thresh
                     )
                 dets = convert_dino_boxes_to_detections(boxes, logits, orig_w, orig_h)
-                detection_embeddings = []
-                for d in dets:
-                    x1, y1, x2, y2, _ = d.tolist()
-                    xi1, yi1, xi2, yi2 = int(x1), int(y1), int(x2), int(y2)
-                    crop = img[yi1:yi2, xi1:xi2]
-                    if crop.size == 0 or crop.shape[0] < 10 or crop.shape[1] < 10:
-                        detection_embeddings.append(None)
-                        continue
-                    emb = build_image_embedding(clip_model, clip_preprocess, device, crop)
-                    detection_embeddings.append(emb)
-                tracks = tracker.update(
-                    detections=dets,
-                    detection_embeddings=detection_embeddings,
-                    img_info=(orig_h, orig_w),
-                    text_embedding=text_emb,
-                    class_names=classes
-                )
+                tracks = tracker.update(dets, [orig_h,orig_w], [orig_h,orig_w]) if dets.size else []
                 for t in tracks:
                     x,y,w,h = t.tlwh; tid = t.track_id
                     if w*h > MIN_BOX_AREA:
@@ -191,26 +148,22 @@ def eval_all(gt_folder, res_folder):
 
     # Manual concatenation and average row
     df_all = pd.concat(all_summaries)
-    average_mota = df_all['mota'].mean()
     avg_row = df_all.mean(numeric_only=True)
     avg_row.name = 'AVG'
     df_all = df_all.append(avg_row)
 
     print("\n====== AVERAGE ACROSS SEQUENCES ======")
     print(df_all)
-    print("Average MOTA: ", average_mota)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--images', default="/isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/image_02")
     parser.add_argument('--labels', default="/isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/label_02")
-    parser.add_argument('--box_threshold', type=float, default=0.49)
-    parser.add_argument('--text_threshold', type=float, default=0.20)
-    parser.add_argument('--track_thresh', type=float, default=0.18)
-    parser.add_argument('--match_thresh', type=float, default=0.85)
-    parser.add_argument('--track_buffer', type=int, default=180)
-    parser.add_argument("--lambda_weight", type=float, default=0.26)
-    parser.add_argument("--text_sim_weight", type=float, default=0.16)
+    parser.add_argument('--box_threshold', type=float, default=0.42)
+    parser.add_argument('--text_threshold', type=float, default=0.5)
+    parser.add_argument('--track_thresh', type=float, default=0.41)
+    parser.add_argument('--match_thresh', type=float, default=0.87)
+    parser.add_argument('--track_buffer', type=int, default=200)
     parser.add_argument('--outdir', type=str, default=None)
     parser.add_argument('--fp16', action='store_true')
     args = parser.parse_args()
@@ -233,7 +186,6 @@ if __name__ == '__main__':
         args.images, out_res,
         args.box_threshold, args.text_threshold,
         args.track_thresh, args.match_thresh,
-        args.lambda_weight, args.text_sim_weight,
         args.track_buffer, args.fp16
     )
     eval_all(out_gt, out_res)

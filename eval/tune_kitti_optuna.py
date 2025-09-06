@@ -6,7 +6,7 @@ import shutil
 from datetime import datetime
 import csv
 
-def run_eval(box_thresh, text_thresh, track_thresh, match_thresh, track_buffer, show_output=False):
+def run_eval(box_thresh, text_thresh, track_thresh, match_thresh, track_buffer, lambda_weight, text_sim_weight, show_output=False):
     timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
     outdir = f"tmp_eval_out_{timestamp}"
     os.makedirs(outdir, exist_ok=True)
@@ -20,6 +20,8 @@ def run_eval(box_thresh, text_thresh, track_thresh, match_thresh, track_buffer, 
         "--track_thresh", str(track_thresh),
         "--match_thresh", str(match_thresh),
         "--track_buffer", str(track_buffer),
+        "--lambda_weight", str(lambda_weight),
+        "--text_sim_weight", str(text_sim_weight),
         "--outdir", outdir,
         "--fp16"
     ]
@@ -28,7 +30,7 @@ def run_eval(box_thresh, text_thresh, track_thresh, match_thresh, track_buffer, 
     output = proc.stdout + proc.stderr
 
     # Extract MOTA
-    match = re.search(r"Average MOTA: ([\-\d\.]+)", output)
+    match = re.search(r"Average MOTA:  ([\-\d\.]+)", output)
     mota = -1
     if match:
         mota = float(match.group(1))
@@ -36,6 +38,7 @@ def run_eval(box_thresh, text_thresh, track_thresh, match_thresh, track_buffer, 
               f"track={track_thresh:.4f}, match={match_thresh:.4f}, buffer={track_buffer}")
     else:
         print("[Eval] Failed to extract MOTA")
+        print(output)
         if show_output:
             print(output)
 
@@ -53,8 +56,10 @@ def objective(trial):
     track_thresh = trial.suggest_float("track_thresh", 0.1, 0.9)
     match_thresh = trial.suggest_float("match_thresh", 0.1, 0.9)
     track_buffer = trial.suggest_int("track_buffer", 30, 300)
+    lambda_weight = trial.suggest_float("lambda_weight", 0.0, 0.5)
+    text_sim_weight = trial.suggest_float("text_sim_weight", 0.0, 0.5)
 
-    mota = run_eval(box_thresh, text_thresh, track_thresh, match_thresh, track_buffer)
+    mota = run_eval(box_thresh, text_thresh, track_thresh, match_thresh, track_buffer, lambda_weight, text_sim_weight)
     if mota < 0:
         return 1.0  # Worst (Optuna minimizes)
 
@@ -68,7 +73,7 @@ if __name__ == "__main__":
     print("Best MOTA score:", round(1.0 - study.best_value, 6))
 
     # ---- SAVE ALL TRIAL RESULTS TO CSV ----
-    param_names = ["box_threshold", "text_threshold", "track_thresh", "match_thresh", "track_buffer"]
+    param_names = ["box_threshold", "text_threshold", "track_thresh", "match_thresh", "track_buffer", "lambda_weight", "text_sim_weight"]
     all_trials = []
     with open("optuna_trials_log.csv", "w", newline='') as f:
         writer = csv.writer(f)

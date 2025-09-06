@@ -130,3 +130,7 @@ Trial |    MOTA | box_threshold | text_threshold | track_thresh | match_thresh |
   183 |   0.477 |   0.439582 |   0.465316 |    0.37072 |     0.8249 |        200
   103 |   0.476 |   0.407848 |   0.443106 |   0.409828 |   0.835834 |        245
   179 |   0.476 |   0.424655 |   0.438603 |   0.372369 |   0.875655 |        208
+
+
+Best hyperparameters: {'box_threshold': 0.49846673605091385, 'text_threshold': 0.2007307769128205, 'track_thresh': 0.1855126156353192, 'match_thresh': 0.8550404644582876, 'track_buffer': 180, 'lambda_weight': 0.2679704168727593, 'text_sim_weight': 0.16938010732051406}
+Best MOTA score: 0.537657
