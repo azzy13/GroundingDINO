@@ -120,7 +120,7 @@ class STrack(BaseTrack):
     def __repr__(self):
         return f'OT_{self.track_id}_({self.start_frame}-{self.end_frame})'
 
-class BYTETracker(object):
+class CLIPTracker(object):
     def __init__(self, args, frame_rate=30):
         self.tracked_stracks = []
         self.lost_stracks = []

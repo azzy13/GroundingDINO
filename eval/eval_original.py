@@ -14,6 +14,7 @@ from tracker.byte_tracker import BYTETracker
 from torch.cuda.amp import autocast
 import torch.nn.functional as F
 import pandas as pd
+import subprocess
 
 # === Static config ===
 CONFIG_PATH = "groundingdino/config/GroundingDINO_SwinB_cfg.py"
@@ -22,41 +23,15 @@ TEXT_PROMPT = "car. pedestrian."
 MIN_BOX_AREA = 10
 FRAME_RATE = 10
 
-transform = T.Compose([
-    T.ToTensor(),
-    T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-])
+import os, sys, json, tempfile, subprocess
 
-def letterbox(tensor, size):
-    _, h, w = tensor.shape
-    scale = min(size[0] / h, size[1] / w)
-    resized = F.interpolate(tensor.unsqueeze(0), scale_factor=scale, mode='bilinear', align_corners=False)[0]
-    pad_h = size[0] - resized.shape[1]
-    pad_w = size[1] - resized.shape[2]
-    top, bottom = pad_h // 2, pad_h - pad_h // 2
-    left, right = pad_w // 2, pad_w - pad_w // 2
-    return F.pad(resized, (left, right, top, bottom), value=0.0)
-
-def preprocess_frame(frame, use_fp16=False):
-    h, w = frame.shape[:2]
-    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    tensor = transform(img).cuda()
-    tensor = letterbox(tensor, size=(h, w))
-    return tensor.half() if use_fp16 else tensor
-
-def convert_dino_boxes_to_detections(boxes, logits, W, H):
-    dets = []
-    for box, logit in zip(boxes, logits):
-        cx, cy, w, h = box
-        score = float(logit)
-        x1 = (cx - w/2) * W
-        y1 = (cy - h/2) * H
-        x2 = (cx + w/2) * W
-        y2 = (cy + h/2) * H
-        if w <= 0 or h <= 0:
-            continue
-        dets.append([max(0,x1), max(0,y1), min(W-1,x2), min(H-1,y2), score])
-    return np.array(dets) if dets else np.empty((0,5))
+def launch_on_gpu(gpu_id: int, seq, img_folder, res_folder, box_thresh, text_thresh, track_thresh, match_thresh, track_buffer, use_fp16):
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    return subprocess.Popen(
+        [sys.executable, "-u", "eval/worker.py", "--seq", seq, "--img_folder", img_folder, "--res_folder", res_folder, "--box_thresh", str(box_thresh), "--text_thresh", str(text_thresh), "--track_thresh", str(track_thresh), "--match_thresh", str(match_thresh), "--track_buffer", str(track_buffer)],
+        env=env
+    )
 
 def combine_gt_local(label_folder, out_folder):
     os.makedirs(out_folder, exist_ok=True)
@@ -72,51 +47,22 @@ def combine_gt_local(label_folder, out_folder):
                 w,h = x2-x1, y2-y1
                 f_out.write(f"{frame},{tid},{x1:.2f},{y1:.2f},{w:.2f},{h:.2f},1,-1,-1,-1\n")
 
-def run_inference_local(img_folder, res_folder, box_thresh, text_thresh, track_thresh, match_thresh, track_buffer, use_fp16=False):
-    model = load_model(CONFIG_PATH, WEIGHTS_PATH).cuda().eval()
+def run_inference_local(img_folder, res_folder, box_thresh, text_thresh, track_thresh, match_thresh, track_buffer, use_fp16=False, jobs=1):
     os.makedirs(res_folder, exist_ok=True)
+    device_limit = torch.cuda.device_count()
+    print(device_limit)
+    job_args = []
     for seq in sorted(os.listdir(img_folder)):
-        seq_path = os.path.join(img_folder, seq)
-        if not os.path.isdir(seq_path):
-            continue
-        tracker = BYTETracker(
-            argparse.Namespace(
-                track_thresh=track_thresh,
-                track_buffer=track_buffer,
-                match_thresh=match_thresh,
-                aspect_ratio_thresh=10.0,
-                min_box_area=MIN_BOX_AREA,
-                mot20=False
-            ),
-            frame_rate=FRAME_RATE
-        )
-        out_file = os.path.join(res_folder, f"{seq}.txt")
-        with open(out_file, 'w') as f_res:
-            for frame_name in sorted(os.listdir(seq_path)):
-                frame_id = int(os.path.splitext(frame_name)[0])
-                img = cv2.imread(os.path.join(seq_path, frame_name))
-                orig_h, orig_w = img.shape[:2]
-                tensor = preprocess_frame(img, use_fp16)
-                _, proc_h, proc_w = tensor.shape
-
-                if frame_id < 5:
-                    print(f"Frame {frame_id}: Original size={orig_h}x{orig_w}, Processed size={proc_h}x{proc_w}")
-
-                with torch.no_grad(), autocast(enabled=use_fp16):
-                    boxes, logits, _ = predict(
-                        model=model, image=tensor,
-                        caption=TEXT_PROMPT,
-                        box_threshold=box_thresh,
-                        text_threshold=text_thresh
-                    )
-                dets = convert_dino_boxes_to_detections(boxes, logits, orig_w, orig_h)
-                tracks = tracker.update(dets, [orig_h,orig_w], [orig_h,orig_w]) if dets.size else []
-                for t in tracks:
-                    x,y,w,h = t.tlwh; tid = t.track_id
-                    if w*h > MIN_BOX_AREA:
-                        f_res.write(
-                            f"{frame_id},{tid},{x:.2f},{y:.2f},{w:.2f},{h:.2f},1,-1,-1,-1\n")
-        print(f"Saved tracking results for {seq} to {out_file}")
+        job_args.append((seq, img_folder, res_folder, box_thresh, text_thresh, track_thresh, match_thresh, track_buffer, use_fp16))
+    procs = []
+    for gpu, args in enumerate(job_args):
+        device = gpu % device_limit
+        procs.append(launch_on_gpu(device, *args))
+        if len(procs) >= jobs:
+            procs[0].wait()
+            procs = procs[1:]
+    for p in procs:
+        p.wait()
 
 def eval_all(gt_folder, res_folder):
     gt_files = sorted(glob.glob(os.path.join(gt_folder, "*.txt")))
