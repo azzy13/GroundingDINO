@@ -5,6 +5,7 @@ import glob
 import argparse
 import subprocess
 from datetime import datetime
+import pandas as pd
 
 from compute_metrics import MotMetricsEvaluator 
 
@@ -97,8 +98,8 @@ def main():
     p.add_argument("--fp16", action="store_true")
 
     # CLIP-only extras (forwarded to worker via --tracker_kv)
-    p.add_argument("--lambda_weight", type=float, default=0.27)
-    p.add_argument("--text_sim_thresh", type=float, default=0.17)
+    p.add_argument("--lambda_weight", type=float, default=0.25)
+    p.add_argument("--text_sim_thresh", type=float, default=0.0)
 
     # Dispatch controls passed to worker
     p.add_argument("--devices", default="0,1", help="GPU ids string for worker (e.g., '0,1')")
@@ -135,6 +136,37 @@ def main():
     print("\n===== CLIP-FUSED =====")
     df_clip = evaluator.evaluate(out_gt, out_clip, verbose=True)
     print(df_clip)
+
+        # ---- Save individual CSVs ----
+    csv_base = os.path.join(args.outdir, "baseline_metrics.csv")
+    csv_clip = os.path.join(args.outdir, "clip_fused_metrics.csv")
+    csv_comp = os.path.join(args.outdir, "comparison_metrics.csv")
+    try:
+        df_base.to_csv(csv_base)
+        df_clip.to_csv(csv_clip)
+    except Exception as e:
+        print(f"[warn] could not save individual CSVs: {e}")
+
+    # ---- Build consolidated comparison with deltas (CLIP - BASELINE) ----
+    try:
+        idx = sorted(set(df_base.index) | set(df_clip.index))
+        common_cols = sorted(set(df_base.columns) & set(df_clip.columns))
+        base_aligned = df_base.reindex(idx)[common_cols]
+        clip_aligned = df_clip.reindex(idx)[common_cols]
+        delta = clip_aligned - base_aligned
+
+        pieces, newcols = [], []
+        for c in common_cols:
+            pieces += [base_aligned[[c]], clip_aligned[[c]], delta[[c]]]
+            newcols += [(c, "Baseline"), (c, "CLIP-Fused"), (c, "Δ")]
+
+        comp = pd.concat(pieces, axis=1)
+        comp.columns = pd.MultiIndex.from_tuples(newcols)
+        comp.to_csv(csv_comp)
+        print(f"\nSaved metrics:\n- {csv_base}\n- {csv_clip}\n- {csv_comp}")
+    except Exception as e:
+        print(f"[warn] could not build/save comparison CSV: {e}")
+
 
     # 4) Small summary delta on key metrics (if both present)
     try:
