@@ -1,6 +1,16 @@
-torch
+torch<=2.1.2
+numpy==1.26.2
+setuptools==78.1.1
+cython_bbox
+ipykernel
+lap
+pandas
+motmetrics
+clip
+accelerate
+einops
 torchvision
-transformers
+transformers==4.49.0
 addict
 yapf
 timm
@@ -8,6 +18,3 @@ numpy
 opencv-python
 supervision>=0.22.0
 pycocotools
-lap
-cython_bbox
-ninja
