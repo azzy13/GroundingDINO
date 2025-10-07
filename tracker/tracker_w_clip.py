@@ -177,7 +177,7 @@ class CLIPTracker(object):
 
     @staticmethod
     def _fuse_iou_and_clip(iou_for_blend, emb_cost, emb_valid_mask, *,
-                           lambda_weight=0.25, adaptive=True, iou_for_weight=None):
+                           lambda_weight=0.23, adaptive=True, iou_for_weight=None):
         """
         Blend IoU distance (in [0,1]) with appearance cost (in [0,1]).
         - Use iou_for_weight = RAW IoU distance (without score fusion!) for the adaptive term.

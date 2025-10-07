@@ -9,7 +9,6 @@ from pathlib import Path
 
 from compute_metrics import MotMetricsEvaluator
 
-# worker.py is in the same folder as this script
 WORKER_PY = Path(__file__).resolve().parent / "worker.py"
 
 def combine_gt_local(label_folder, out_folder):
@@ -41,12 +40,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--images', required=True)
     ap.add_argument('--labels', required=True)
-    ap.add_argument('--box_threshold', type=float, default=0.42)
-    ap.add_argument('--text_threshold', type=float, default=0.5)
-    ap.add_argument('--track_thresh', type=float, default=0.41)
+    ap.add_argument('--box_threshold', type=float, default=0.43)
+    ap.add_argument('--text_threshold', type=float, default=0.11)
+    ap.add_argument('--track_thresh', type=float, default=0.39)
     ap.add_argument('--match_thresh', type=float, default=0.87)
-    ap.add_argument('--track_buffer', type=int, default=200)
+    ap.add_argument('--track_buffer', type=int, default=150)
     ap.add_argument('--tracker', choices=['bytetrack', 'clip'], default='bytetrack')
+    ap.add_argument('--detector', choices=['dino', 'florence2'], default='dino')
     ap.add_argument('--text_prompt', type=str, default="car. pedestrian.")
     ap.add_argument('--config', type=str, default="groundingdino/config/GroundingDINO_SwinB_cfg.py")
     ap.add_argument('--weights', type=str, default="weights/groundingdino_swinb_cogcoor.pth")
@@ -92,6 +92,7 @@ def main():
         "--frame_rate", str(args.frame_rate),
         "--devices", args.devices,
         "--jobs", str(args.jobs),
+        "--detector", args.detector,
     ]
     if args.fp16:
         cmd.append("--use_fp16")
@@ -101,7 +102,18 @@ def main():
     subprocess.check_call(cmd)
 
     evaluator = MotMetricsEvaluator(distth=0.5, fmt='mot15-2D')
-    _ = evaluator.evaluate(out_gt, out_res, verbose=True)
+    df = evaluator.evaluate(out_gt, out_res, verbose=True)
+    try:
+        if "AVG" in df.index:
+            mota = float(df.loc["AVG"].get("mota", float("nan")))
+            idf1 = float(df.loc["AVG"].get("idf1", float("nan")))
+        else:
+            mota = float(df["mota"].mean())
+            idf1 = float(df["idf1"].mean()) if "idf1" in df.columns else float("nan")
+        print(f"OPTUNA:MOTA={mota:.6f} IDF1={idf1:.6f}")
+    except Exception as e:
+        print(f"OPTUNA_ERROR:{e}")
+
 
 if __name__ == '__main__':
     main()

@@ -19,6 +19,7 @@ from torch.cuda.amp import autocast
 import clip
 
 from groundingdino.util.inference import load_model, predict
+from demo.florence2_adapter import Florence2Detector
 
 # ----------------------------
 # Defaults (override in __init__)
@@ -119,6 +120,7 @@ class Worker:
         config_path: str = DEFAULT_CONFIG_PATH,
         weights_path: str = DEFAULT_WEIGHTS_PATH,
         text_prompt: str = DEFAULT_TEXT_PROMPT,
+        detector: str = "dino",
         box_thresh: float = 0.35,
         text_thresh: float = 0.25,
         use_fp16: bool = False,
@@ -147,9 +149,17 @@ class Worker:
         self.device = device
 
         # Model
-        self.model = load_model(config_path, weights_path)
-        if hasattr(self.model, "to"):
-            self.model = self.model.to(self.device)
+        self.detector_kind = detector
+        if self.detector_kind == "dino":
+            self.dino_model = load_model(config_path, weights_path)
+            self.detector_kind = "dino"
+            if hasattr(self.dino_model, "to"):
+                self.dino_model = self.dino_model.to(self.device)
+        else:
+            self.florence = Florence2Detector(model_id="microsoft/Florence-2-large",
+                                            device=self.device,
+                                            fp16=self.use_fp16)
+            self.detector_kind = "florence2"
 
         # Preprocessing
         self._transform = _build_normalize_transform()
@@ -210,16 +220,28 @@ class Worker:
             tensor = tensor.cuda(non_blocking=True)
         return tensor.half() if self.use_fp16 else tensor
 
-    def predict_detections(self, tensor_image: torch.Tensor, orig_h: int, orig_w: int) -> np.ndarray:
-        with torch.no_grad(), autocast(enabled=self.use_fp16):
-            boxes, logits, _ = predict(
-                model=self.model,
-                image=tensor_image,
-                caption=self.text_prompt,
-                box_threshold=self.box_thresh,
-                text_threshold=self.text_thresh,
+    def predict_detections(self, frame_bgr: np.ndarray,
+                           tensor_image: Optional[torch.Tensor],
+                           orig_h: int, orig_w: int) -> np.ndarray:
+        if self.detector_kind == "dino":
+            assert tensor_image is not None, "DINO path needs a tensor_image"
+            with torch.no_grad(), autocast(enabled=self.use_fp16):
+                boxes, logits, _ = predict(
+                    model=self.dino_model,
+                    image=tensor_image,
+                    caption=self.text_prompt,
+                    box_threshold=self.box_thresh,
+                    text_threshold=self.text_thresh,
+                )
+            return _convert_dino_to_xyxy(boxes, logits, orig_w, orig_h)
+        else:
+            # Florence-2 works directly from BGR frame
+            return self.florence.predict(
+                frame_bgr=frame_bgr,
+                text_prompt=self.text_prompt,
+                box_threshold=self.box_thresh
             )
-        return _convert_dino_to_xyxy(boxes, logits, orig_w, orig_h)
+
 
     def update_tracker(self, dets_xyxy: np.ndarray, orig_h: int, orig_w: int):
         """
@@ -321,17 +343,23 @@ class Worker:
                     continue
                 orig_h, orig_w = img.shape[:2]
 
-                tensor = self.preprocess_frame(img)
-
-                if idx < self.verbose_first_n_frames:
-                    _, proc_h, proc_w = tensor.shape
-                    print(
-                        f"[{seq}] Frame {frame_id}: "
-                        f"Original {orig_h}x{orig_w} | Processed {proc_h}x{proc_w} | "
-                        f"tracker={type(self.tracker).__name__}"
-                    )
-
-                dets = self.predict_detections(tensor, orig_h, orig_w)
+                #Only preprocess if using DINO
+                if self.detector_kind == "dino":
+                    tensor = self.preprocess_frame(img)
+                    if idx < self.verbose_first_n_frames:
+                        _, proc_h, proc_w = tensor.shape
+                        print(f"[{seq}] Frame {frame_id}: Original {orig_h}x{orig_w} | "
+                            f"Processed {proc_h}x{proc_w} | tracker={type(self.tracker).__name__} | "
+                            f"detector={self.detector_kind}")
+                else:
+                    tensor = None
+                    if idx < self.verbose_first_n_frames:
+                        print(f"[{seq}] Frame {frame_id}: Original {orig_h}x{orig_w} | "
+                      f"Processed n/a (florence2) | tracker={type(self.tracker).__name__} | "
+                      f"detector={self.detector_kind}")
+                    
+                # NEW signature: (frame_bgr, tensor_image_or_None, H, W)
+                dets = self.predict_detections(img, tensor, orig_h, orig_w)
                 if self.tracker_type == "clip":
                     tracks = self.update_tracker_clip(dets, img, orig_h, orig_w)
                 else:
@@ -454,6 +482,7 @@ if __name__ == "__main__":
                 "--match_thresh", str(args.match_thresh),
                 "--track_buffer", str(args.track_buffer),
                 "--text_prompt", args.text_prompt,
+                "--detector", args.detector,
                 "--config", args.config,
                 "--weights", args.weights,
                 "--min_box_area", str(args.min_box_area),
@@ -491,6 +520,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Run GroundingDINO + pluggable tracker.")
     # Sequence selection (choose any combo; if none provided, --all is implied)
+    parser.add_argument("--detector", choices=["dino", "florence2"], default="dino", help="Object detector to use.")
     parser.add_argument("--seq", nargs="*", help="Sequence name(s) under --img_folder (e.g., 0000 0001).")
     parser.add_argument("--seq_file", type=str, help="Text file with one sequence name per line.")
     parser.add_argument("--seq_glob", action="append",
@@ -543,6 +573,7 @@ if __name__ == "__main__":
             text_thresh=args.text_thresh,
             use_fp16=args.use_fp16,
             text_prompt=args.text_prompt,
+            detector=args.detector,
             frame_rate=args.frame_rate,
             min_box_area=args.min_box_area,
             config_path=args.config,
@@ -573,6 +604,7 @@ if __name__ == "__main__":
             text_thresh=args.text_thresh,
             use_fp16=args.use_fp16,
             text_prompt=args.text_prompt,
+            detector=args.detector,
             frame_rate=args.frame_rate,
             min_box_area=args.min_box_area,
             config_path=args.config,
