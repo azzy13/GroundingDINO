@@ -25,7 +25,7 @@ python3 demo/test_ap_on_coco.py -c groundingdino/config/GroundingDINO_SwinB_cfg.
 python3 eval/eval.py --fp16
 
 # eval on MOT17
-python3 eval/eval_mot17.py --fp16
+python3 eval/eval_mot17.py     --data_root dataset/MOT17     --split train     --detector_suffix DPM     --detector dino     --tracker bytetrack     --fp16     --devices 0,1     --jobs 2
 
 # eval 2 GPUs
 python3 eval/eval_new.py --images /isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/image_02 --labels /isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/label_02 --devices 0,1 --jobs 2 --fp16 --detector florence2
