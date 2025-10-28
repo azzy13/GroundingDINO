@@ -151,3 +151,4 @@ dataset/
 *tmp_*/
 debug*/
 outputs_compare/
+output/
