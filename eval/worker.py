@@ -343,6 +343,18 @@ class Worker:
                     continue
                 orig_h, orig_w = img.shape[:2]
 
+                # # --- Safe resize for high-res frames (VisDrone etc.) ---
+                # max_w, max_h = 1280, 720
+                # if orig_w > max_w or orig_h > max_h:
+                #     scale = min(max_w / orig_w, max_h / orig_h)
+                #     new_w, new_h = int(orig_w * scale), int(orig_h * scale)
+                #     img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                #     if idx < self.verbose_first_n_frames:
+                #         print(f"   [resize] downscaled from {orig_w}x{orig_h} → {new_w}x{new_h}")
+                #     orig_h, orig_w = img.shape[:2]
+                # # -------------------------------------------
+
+
                 #Only preprocess if using DINO
                 if self.detector_kind == "dino":
                     tensor = self.preprocess_frame(img)

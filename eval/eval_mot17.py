@@ -4,7 +4,7 @@ Simple MOT evaluation runner - mirrors run_kitti_2gua.py structure.
 Uses existing worker.py without modification.
 
 Usage:
-    python eval/run_mot_simple.py \\
+    python eval/eval_mot17.py \\
         --data_root dataset/MOT17 \\
         --split train \\
         --detector_suffix DPM
@@ -170,9 +170,9 @@ def main():
     # Dataset paths
     ap.add_argument('--data_root', required=True,
                    help="Path to MOT dataset root (e.g., dataset/MOT17)")
-    ap.add_argument('--split', default='train', choices=['train', 'test'],
-                   help="Dataset split")
-    ap.add_argument('--detector_suffix', choices=['DPM', 'FRCNN', 'SDP'],
+    ap.add_argument('--split', default='train', choices=['train', 'val', 'test'],
+                   help="Dataset split (train, val, or test)")
+    ap.add_argument('--detector_suffix', choices=['DPM', 'FRCNN', 'SDP'], default=None,
                    help="MOT17 only: filter by detector (e.g., DPM for 7 sequences)")
     
     # Model parameters (with MOT-friendly defaults)
@@ -183,9 +183,10 @@ def main():
     ap.add_argument('--track_buffer', type=int, default=30)
     ap.add_argument('--tracker', choices=['bytetrack', 'clip'], default='bytetrack')
     ap.add_argument('--detector', choices=['dino', 'florence2'], default='dino')
-    ap.add_argument('--text_prompt', type=str, default=None,
+    ap.add_argument('--text_prompt', type=str, default="person.",
                    help="Override default text prompt")
-    ap.add_argument('--config', type=str,
+    ap.add_argument('--config', type=str, choices=['groundingdino/config/GroundingDINO_SwinB_cfg.py', 
+                                                   'groundingdino/config/GroundingDINO_SwinT_OGC.py'],
                    default="groundingdino/config/GroundingDINO_SwinB_cfg.py")
     ap.add_argument('--weights', type=str,
                    default="weights/groundingdino_swinb_cogcoor.pth")
@@ -317,9 +318,9 @@ def main():
         import traceback
         traceback.print_exc()
         sys.exit(1)
-    
-    # Evaluate (train split only)
-    if args.split == 'train':
+
+    # Evaluate (train and val splits only)
+    if args.split in ['train', 'val']:
         print(f"\n{'='*60}")
         print("📊 Evaluating Results")
         print(f"{'='*60}\n")

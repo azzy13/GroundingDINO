@@ -1,4 +1,4 @@
-# metrics_evaluator.py
+# compute_metrics.py
 import os, glob
 import pandas as pd
 import motmetrics as mm
@@ -16,12 +16,34 @@ class MotMetricsEvaluator:
         ]
 
     def _pair(self, gt_folder, res_folder):
-        gt_files = glob.glob(os.path.join(gt_folder, "*.txt"))
+        # Try nested structure first (MOT17 style)
+        gt_files = glob.glob(os.path.join(gt_folder, "*", "gt", "gt.txt"))
+        
+        # Fallback to flat format (VisDrone style)
+        if not gt_files:
+            gt_files = glob.glob(os.path.join(gt_folder, "*.txt"))
+        
         res_files = glob.glob(os.path.join(res_folder, "*.txt"))
-        gt_map = {os.path.splitext(os.path.basename(p))[0]: p for p in gt_files}
-        res_map = {os.path.splitext(os.path.basename(p))[0]: p for p in res_files}
+        print(f"📂 Found {len(gt_files)} GT files and {len(res_files)} result files")
+        
+        # Map by sequence name
+        if gt_files and "/gt/gt.txt" in gt_files[0]:
+            # Nested: extract from path/to/sequence_name/gt/gt.txt
+            gt_map = {os.path.basename(os.path.dirname(os.path.dirname(p))): p 
+                    for p in gt_files}
+        else:
+            # Flat: extract from sequence_name.txt
+            gt_map = {os.path.splitext(os.path.basename(p))[0]: p 
+                    for p in gt_files}
+        
+        res_map = {os.path.splitext(os.path.basename(p))[0]: p 
+                for p in res_files}
+
         common = sorted(set(gt_map) & set(res_map))
+        if not common:
+            print(f"⚠ No matches — GT: {list(gt_map.keys())[:5]}, RES: {list(res_map.keys())[:5]}")
         return [(name, gt_map[name], res_map[name]) for name in common]
+
 
     def evaluate(self, gt_folder, res_folder, verbose=True):
         triples = self._pair(gt_folder, res_folder)

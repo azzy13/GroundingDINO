@@ -21,6 +21,9 @@ python3 demo/inference_w_clip.py --video ./videos/color.mp4 --output ./outputs/c
 # eval on coco 2017
 python3 demo/test_ap_on_coco.py -c groundingdino/config/GroundingDINO_SwinB_cfg.py -p weights/groundingdino_swinb_cogcoor.pth --anno_path /isis/home/hasana3/vlmtest/GroundingDINO/dataset/coco/annotations/instances_val2017.json --image_dir /isis/home/hasana3/vlmtest/GroundingDINO/dataset/coco/val2017
 
+# eval on visdrone
+python3 eval/eval_mot17.py --data_root /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone_mot_format   --split val   --box_threshold 0.25   --text_threshold 0.10   --track_thresh 0.30   --match_thresh 0.85    --text_prompt "person. pedestrian. car. van. truck. bus."   --min_visibility 0.0
+
 # eval on kitti
 python3 eval/eval.py --fp16
 

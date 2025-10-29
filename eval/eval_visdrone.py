@@ -1,158 +1,216 @@
 #!/usr/bin/env python3
+"""
+VisDrone MOT Evaluation Runner
+Mirrors eval_mot17.py but customized for VisDrone MOT-format datasets.
+
+Usage:
+    python eval/eval_visdrone.py \
+        --data_root dataset/visdrone_mot_format \
+        --split val \
+        --text_prompt "pedestrian. car. van. bus. truck."
+"""
+
 import os
-import cv2
-import glob
+import sys
 import argparse
-import motmetrics as mm
-import numpy as np
-import torch
-from PIL import Image
+import subprocess
 from datetime import datetime
-import torchvision.transforms as T
-from groundingdino.util.inference import load_model, predict
-from tracker.byte_tracker import BYTETracker
-from torch.cuda.amp import autocast
+from pathlib import Path
+import shutil
+import pandas as pd
+from compute_metrics import MotMetricsEvaluator
 
-# === Configurable constants ===
-CONFIG_PATH = "groundingdino/config/GroundingDINO_SwinB_cfg.py"
-WEIGHTS_PATH = "weights/groundingdino_swinb_cogcoor.pth"
-TEXT_PROMPT = "car. truck. van. person. pedestrian."
-BOX_THRESHOLD = 0.25
-TEXT_THRESHOLD = 0.2
-TRACK_THRESH = 0.4
-TRACK_BUFFER = 100
-MATCH_THRESH = 0.6
-MIN_BOX_AREA = 10
-FRAME_RATE = 30  # VisDrone typical
+WORKER_PY = Path(__file__).resolve().parent / "worker.py"
 
-transform = T.Compose([
-    T.ToTensor(),
-    T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-])
+DATASET_DEFAULTS = {
+    'visdrone': {'text_prompt': 'pedestrian. car. van. bus. truck.', 'frame_rate': 25},
+}
 
-def preprocess_frame(frame, use_fp16=False):
-    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    tensor = transform(img).cuda()
-    return tensor.half() if use_fp16 else tensor
-
-def convert_dino_boxes_to_detections(boxes, logits, W, H):
-    dets = []
-    for box, logit in zip(boxes, logits):
-        cx, cy, w, h = box
-        score = float(logit)
-        x1 = (cx - w/2) * W
-        y1 = (cy - h/2) * H
-        x2 = (cx + w/2) * W
-        y2 = (cy + h/2) * H
-        if w <= 0 or h <= 0:
-            continue
-        dets.append([max(0,x1), max(0,y1), min(W-1,x2), min(H-1,y2), score])
-    return np.array(dets) if dets else np.empty((0,5))
-
-def combine_gt_visdrone(label_folder, out_folder):
-    """
-    Converts VisDrone MOT val annotations to MOT format used by motmetrics:
-    frame_id, track_id, x, y, w, h, 1, -1, -1, -1
-    """
+# ----------------------------------------------------------------------
+# Utility: symlink image folders (VisDrone has seq/img1)
+# ----------------------------------------------------------------------
+def create_image_symlinks(data_root, split, out_folder):
     os.makedirs(out_folder, exist_ok=True)
-    for ann_file in glob.glob(os.path.join(label_folder, "*.txt")):
-        seq = os.path.splitext(os.path.basename(ann_file))[0]
-        out_path = os.path.join(out_folder, f"{seq}.txt")
-        with open(ann_file) as fin, open(out_path, 'w') as fout:
-            for line in fin:
-                parts = line.strip().split(',')
-                if len(parts) < 8:
-                    continue
-                frame = int(parts[0])
-                tid = int(parts[1])
-                x, y, w, h = map(float, parts[2:6])
-                vis = int(parts[8])
-                cls = int(parts[7])
-                # Filter: only "fully visible" and real targets (person, car, etc.)
-                # VisDrone: cls in [0..10], 0=ignored, 1=pedestrian, 2=people, 3=bicycle, 4=car, 5=van, ...
-                if tid <= 0 or vis == 0 or cls == 0:
-                    continue
-                fout.write(f"{frame},{tid},{x:.2f},{y:.2f},{w:.2f},{h:.2f},1,-1,-1,-1\n")
+    split_path = os.path.join(data_root, split)
+    sequences = sorted([
+        d for d in os.listdir(split_path)
+        if os.path.isdir(os.path.join(split_path, d))
+    ])
 
-def run_inference_visdrone(img_folder, res_folder, use_fp16=False):
-    model = load_model(CONFIG_PATH, WEIGHTS_PATH).cuda().eval()
-    os.makedirs(res_folder, exist_ok=True)
-    for seq in sorted(os.listdir(img_folder)):
-        seq_path = os.path.join(img_folder, seq)
-        if not os.path.isdir(seq_path):
+    print(f"\n🔗 Creating image symlinks for {len(sequences)} sequences...")
+    for seq in sequences:
+        src = os.path.abspath(os.path.join(split_path, seq, "img1"))
+        dst = os.path.abspath(os.path.join(out_folder, seq))
+
+        if not os.path.exists(src):
+            print(f"   ✗ Missing: {src}")
             continue
-        tracker = BYTETracker(
-            argparse.Namespace(
-                track_thresh=TRACK_THRESH,
-                track_buffer=TRACK_BUFFER,
-                match_thresh=MATCH_THRESH,
-                aspect_ratio_thresh=10.0,
-                min_box_area=MIN_BOX_AREA,
-                mot20=False
-            ),
-            frame_rate=FRAME_RATE
-        )
-        out_file = os.path.join(res_folder, f"{seq}.txt")
-        frame_list = sorted(os.listdir(seq_path))
-        for fname in frame_list[:3]:
-            print("Sample image for debug:", os.path.join(seq_path, fname))
-        with open(out_file, 'w') as f_res:
-            for frame_name in sorted(os.listdir(seq_path)):
-                if not (frame_name.endswith(".jpg") or frame_name.endswith(".png")):
-                    continue
-                frame_id = int(os.path.splitext(frame_name)[0])
-                img = cv2.imread(os.path.join(seq_path, frame_name))
-                orig_h, orig_w = img.shape[:2]
-                tensor = preprocess_frame(img, use_fp16)
-                # Model input is (orig_h, orig_w)
-                with torch.no_grad(), autocast(enabled=use_fp16):
-                    boxes, logits, _ = predict(
-                        model=model, image=tensor,
-                        caption=TEXT_PROMPT,
-                        box_threshold=BOX_THRESHOLD,
-                        text_threshold=TEXT_THRESHOLD
-                    )
-                dets = convert_dino_boxes_to_detections(boxes, logits, orig_w, orig_h)
-                tracks = tracker.update(dets, [orig_h,orig_w], [orig_h,orig_w]) if dets.size else []
-                for t in tracks:
-                    x,y,w,h = t.tlwh; tid = t.track_id
-                    if w*h > MIN_BOX_AREA:
-                        f_res.write(
-                            f"{frame_id},{tid},{x:.2f},{y:.2f},{w:.2f},{h:.2f},1,-1,-1,-1\n")
-        print(f"Saved tracking results for {seq} to {out_file}")
+        if os.path.exists(dst):
+            continue
 
-def eval_all(gt_folder, res_folder):
-    gt_files = sorted(glob.glob(os.path.join(gt_folder, "*.txt")))
-    res_files= sorted(glob.glob(os.path.join(res_folder,"*.txt")))
-    motas = []
-    for gt_f, res_f in zip(gt_files, res_files):
-        seq = os.path.basename(gt_f)[:-4]
-        gt= mm.io.loadtxt(gt_f, fmt='mot15-2D', min_confidence=1)
-        res= mm.io.loadtxt(res_f,fmt='mot15-2D')
-        acc= mm.utils.compare_to_groundtruth(gt,res,'iou',distth=0.5)
-        mh= mm.metrics.create()
-        summary= mh.compute(acc, metrics=['num_frames','mota','motp','idf1','num_switches'], name=seq)
-        print(mm.io.render_summary(summary, namemap=mm.io.motchallenge_metric_names))
-        motas.append(summary.loc[seq,'mota'])
-    print(f"\nAverage MOTA: {np.mean(motas):.3f}")
+        try:
+            os.symlink(src, dst, target_is_directory=True)
+            print(f"   ✓ {seq}")
+        except OSError:
+            shutil.copytree(src, dst)
+            print(f"   ✓ {seq} (copied)")
+
+    return sequences
+
+
+# ----------------------------------------------------------------------
+# Utility: copy GTs into output/gt folder (flat format)
+# ----------------------------------------------------------------------
+def copy_visdrone_gt(data_root, split, out_folder):
+    src_split = os.path.join(data_root, split)
+    os.makedirs(out_folder, exist_ok=True)
+
+    copied = 0
+    for seq in sorted(os.listdir(src_split)):
+        seq_gt = os.path.join(src_split, seq, "gt", "gt.txt")
+        if os.path.exists(seq_gt):
+            dst = os.path.join(out_folder, f"{seq}.txt")
+            shutil.copy(seq_gt, dst)
+            copied += 1
+
+    print(f"\n📋 Copied {copied} ground-truth files → {out_folder}")
+
+
+# ----------------------------------------------------------------------
+# Main
+# ----------------------------------------------------------------------
+def main():
+    ap = argparse.ArgumentParser(description="VisDrone MOT evaluation using worker.py + motmetrics")
+    ap.add_argument('--data_root', required=True, help="Path to VisDrone MOT-format dataset root")
+    ap.add_argument('--split', default='val', choices=['train', 'val', 'test'], help="Dataset split")
+    ap.add_argument('--box_threshold', type=float, default=0.25)
+    ap.add_argument('--text_threshold', type=float, default=0.10)
+    ap.add_argument('--track_thresh', type=float, default=0.30)
+    ap.add_argument('--match_thresh', type=float, default=0.85)
+    ap.add_argument('--track_buffer', type=int, default=30)
+    ap.add_argument('--tracker', choices=['bytetrack', 'clip'], default='bytetrack')
+    ap.add_argument('--detector', choices=['dino', 'florence2'], default='dino')
+    ap.add_argument('--text_prompt', type=str, default=None)
+    ap.add_argument('--config', type=str,
+                   default="groundingdino/config/GroundingDINO_SwinB_cfg.py")
+    ap.add_argument('--weights', type=str,
+                   default="weights/groundingdino_swinb_cogcoor.pth")
+    ap.add_argument('--min_box_area', type=int, default=10)
+    ap.add_argument('--frame_rate', type=int, default=None)
+    ap.add_argument('--fp16', action='store_true')
+    ap.add_argument('--devices', type=str, default="0")
+    ap.add_argument('--jobs', type=int, default=1)
+    ap.add_argument('--outdir', type=str, default=None)
+    args = ap.parse_args()
+
+    # ------------------------------------------------------------------
+    # Setup defaults
+    # ------------------------------------------------------------------
+    dataset_name = "visdrone"
+    defaults = DATASET_DEFAULTS[dataset_name]
+    text_prompt = args.text_prompt or defaults['text_prompt']
+    frame_rate = args.frame_rate or defaults['frame_rate']
+
+    # ------------------------------------------------------------------
+    # Setup output directories
+    # ------------------------------------------------------------------
+    if args.outdir is None:
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H%M')
+        run_outdir = os.path.join("outputs", f"{dataset_name}_{args.split}_{timestamp}")
+    else:
+        run_outdir = args.outdir
+
+    os.makedirs(run_outdir, exist_ok=True)
+    out_gt = os.path.join(run_outdir, 'gt')
+    out_res = os.path.join(run_outdir, 'results')
+    temp_images = os.path.join(run_outdir, 'images')
+    os.makedirs(out_gt, exist_ok=True)
+    os.makedirs(out_res, exist_ok=True)
+    os.makedirs(temp_images, exist_ok=True)
+
+    print(f"\n{'='*60}")
+    print(f"VisDrone Evaluation - Split: {args.split.upper()}")
+    print(f"Output directory: {run_outdir}")
+    print(f"{'='*60}\n")
+
+    # ------------------------------------------------------------------
+    # Copy ground truth and link images
+    # ------------------------------------------------------------------
+    copy_visdrone_gt(args.data_root, args.split, out_gt)
+    sequences = create_image_symlinks(args.data_root, args.split, temp_images)
+
+    print(f"\n⚙️  Tracking parameters:")
+    print(f"   Text prompt: {text_prompt}")
+    print(f"   Frame rate: {frame_rate}")
+    print(f"   Box threshold: {args.box_threshold}")
+    print(f"   Track threshold: {args.track_thresh}")
+    print(f"   Match threshold: {args.match_thresh}")
+    print(f"   Track buffer: {args.track_buffer}")
+    print(f"   Detector: {args.detector}")
+    print(f"   Tracker: {args.tracker}")
+    print(f"   Total sequences: {len(sequences)}")
+
+    # ------------------------------------------------------------------
+    # Run worker.py for inference/tracking
+    # ------------------------------------------------------------------
+    cmd = [
+        sys.executable, "-u", str(WORKER_PY),
+        "--img_folder", temp_images,
+        "--all",
+        "--out_dir", out_res,
+        "--tracker", args.tracker,
+        "--box_thresh", str(args.box_threshold),
+        "--text_thresh", str(args.text_threshold),
+        "--track_thresh", str(args.track_thresh),
+        "--match_thresh", str(args.match_thresh),
+        "--track_buffer", str(args.track_buffer),
+        "--text_prompt", text_prompt,
+        "--config", args.config,
+        "--weights", args.weights,
+        "--min_box_area", str(args.min_box_area),
+        "--frame_rate", str(frame_rate),
+        "--devices", args.devices,
+        "--jobs", str(args.jobs),
+        "--detector", args.detector,
+    ]
+    if args.fp16:
+        cmd.append("--use_fp16")
+
+    print(f"\n🚀 Running tracking on {len(sequences)} sequences...\n")
+    print("Command:")
+    print(" \\\n  ".join(cmd))
+    print()
+
+    try:
+        subprocess.check_call(cmd)
+        print("\n✓ Tracking complete!")
+    except subprocess.CalledProcessError as e:
+        print(f"\n✗ Worker failed: return code {e.returncode}")
+        sys.exit(1)
+
+    # ------------------------------------------------------------------
+    # Evaluate with motmetrics
+    # ------------------------------------------------------------------
+    print(f"\n{'='*60}")
+    print("📊 Evaluating Results")
+    print(f"{'='*60}\n")
+
+    evaluator = MotMetricsEvaluator(distth=0.5, fmt='mot15-2D')
+    df = evaluator.evaluate(out_gt, out_res, verbose=True)
+
+    if df is not None:
+        mota = float(df.loc["AVG"].get("mota", float("nan"))) if "AVG" in df.index else df["mota"].mean()
+        idf1 = float(df.loc["AVG"].get("idf1", float("nan"))) if "AVG" in df.index else df["idf1"].mean()
+
+        print(f"\n{'='*60}")
+        print(f"📈 Summary: MOTA={mota*100:.2f}% | IDF1={idf1*100:.2f}%")
+        print(f"{'='*60}\n")
+        print(f"OPTUNA:MOTA={mota:.6f} IDF1={idf1:.6f}")
+    else:
+        print("⚠ No matching GT/RES files for evaluation.")
+
+    print(f"\n✅ Complete! Results saved to: {run_outdir}")
+
 
 if __name__ == '__main__':
-    p = argparse.ArgumentParser()
-    p.add_argument('--images', required=True)
-    p.add_argument('--labels', required=True)
-    p.add_argument('--fp16', action='store_true')
-    args = p.parse_args()
-
-    # --- Make output subfolder with timestamp ---
-    timestamp = datetime.now().strftime('%Y-%m-%d_%H%M')
-    base_outdir = "outputs"
-    run_outdir = os.path.join(base_outdir, f"visdrone_{timestamp}")
-    os.makedirs(run_outdir, exist_ok=True)
-    out_gt = os.path.join(run_outdir, 'gt_local')
-    out_res = os.path.join(run_outdir, 'inference_results')
-
-    print(f"\nAll outputs for this run will be saved in: {run_outdir}\n")
-
-    combine_gt_visdrone(args.labels, out_gt)
-    run_inference_visdrone(args.images, out_res, args.fp16)
-    eval_all(out_gt, out_res)
+    main()
