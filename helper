@@ -22,7 +22,7 @@ python3 demo/inference_w_clip.py --video ./videos/color.mp4 --output ./outputs/c
 python3 demo/test_ap_on_coco.py -c groundingdino/config/GroundingDINO_SwinB_cfg.py -p weights/groundingdino_swinb_cogcoor.pth --anno_path /isis/home/hasana3/vlmtest/GroundingDINO/dataset/coco/annotations/instances_val2017.json --image_dir /isis/home/hasana3/vlmtest/GroundingDINO/dataset/coco/val2017
 
 # eval on visdrone
-python3 eval/eval_mot17.py --data_root /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone_mot_format   --split val   --box_threshold 0.25   --text_threshold 0.10   --track_thresh 0.30   --match_thresh 0.85    --text_prompt "person. pedestrian. car. van. truck. bus."   --min_visibility 0.0
+python3 eval/eval_visdrone.py --data_root /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone_mot_format   --split val   --box_threshold 0.4   --text_threshold 0.8   --track_thresh 0.45   --match_thresh 0.85    --text_prompt "person. car." --jobs 2 --devices 0,1 --fp16 --weights /isis/home/hasana3/vlmtest/GroundingDINO/output/visdrone_swinb_finetune_no_backbone_training/checkpoint_best_regular.pth
 
 # eval on kitti
 python3 eval/eval.py --fp16
@@ -33,8 +33,6 @@ python3 eval/eval_mot17.py     --data_root dataset/MOT17     --split train     -
 # eval 2 GPUs
 python3 eval/eval_new.py --images /isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/image_02 --labels /isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/label_02 --devices 0,1 --jobs 2 --fp16 --detector florence2
 
-# eval on visdrone
-python3 eval/eval_visdrone.py --fp16 --images /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone/VisDrone2019-MOT-val/sequences --labels /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone/VisDrone2019-MOT-val/annotations
 
 # fp16 magic
 ✅ Frame 8733 - Inference: 0.066s

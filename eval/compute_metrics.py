@@ -11,8 +11,8 @@ class MotMetricsEvaluator:
         self.metrics = [
             'num_frames', 'mota', 'motp', 'idf1', 'idp', 'idr',
             'precision', 'recall', 'num_switches',
-            'mostly_tracked', 'mostly_lost', 'num_fragmentations',
-            'num_false_positives', 'num_misses', 'num_objects'
+            'mostly_tracked', 'mostly_lost','partially_tracked', 'num_fragmentations',
+            'num_false_positives', 'num_misses', 'num_objects', 'num_matches',
         ]
 
     def _pair(self, gt_folder, res_folder):

@@ -38,26 +38,11 @@ TRACKER_REGISTRY: Dict[str, Tuple[str, str]] = {
 
 def _build_normalize_transform() -> T.Compose:
     return T.Compose([
+        T.Resize(800),
         T.ToTensor(),
         T.Normalize(mean=[0.485, 0.456, 0.406],
                     std=[0.229, 0.224, 0.225]),
     ])
-
-def _letterbox_tensor(tensor: torch.Tensor, size: Tuple[int, int]) -> torch.Tensor:
-    """Pad to target (H, W) without distorting aspect ratio (centered)."""
-    _, h, w = tensor.shape
-    scale = min(size[0] / h, size[1] / w)
-    resized = F.interpolate(
-        tensor.unsqueeze(0),
-        scale_factor=scale,
-        mode="bilinear",
-        align_corners=False
-    )[0]
-    pad_h = size[0] - resized.shape[1]
-    pad_w = size[1] - resized.shape[2]
-    top, bottom = pad_h // 2, pad_h - pad_h // 2
-    left, right = pad_w // 2, pad_w - pad_w // 2
-    return F.pad(resized, (left, right, top, bottom), value=0.0)
 
 def _convert_dino_to_xyxy(
     boxes: Iterable[Iterable[float]],
@@ -215,7 +200,6 @@ class Worker:
         h, w = frame_bgr.shape[:2]
         img = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
         tensor = self._transform(img)
-        tensor = _letterbox_tensor(tensor, size=(h, w))
         if str(self.device).startswith("cuda"):
             tensor = tensor.cuda(non_blocking=True)
         return tensor.half() if self.use_fp16 else tensor
