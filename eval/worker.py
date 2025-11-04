@@ -1,4 +1,3 @@
-# worker.py
 #!/usr/bin/env python3
 from __future__ import annotations
 
@@ -119,6 +118,7 @@ class Worker:
         frame_rate: int = DEFAULT_FRAME_RATE,
         min_box_area: int = DEFAULT_MIN_BOX_AREA,
         verbose_first_n_frames: int = 5,
+        save_video: bool = False,
     ):
         self.text_prompt = text_prompt
         self.box_thresh = float(box_thresh)
@@ -126,6 +126,7 @@ class Worker:
         self.use_fp16 = bool(use_fp16)
         self.frame_rate = int(frame_rate)
         self.min_box_area = int(min_box_area)
+        self.save_video = bool(save_video)
         self.verbose_first_n_frames = int(verbose_first_n_frames)
 
         # Device
@@ -304,6 +305,7 @@ class Worker:
         img_folder: str,
         out_path: str,
         sort_frames: bool = True,
+        video_out_path: Optional[str] = None,
     ):
         """
         Process a single sequence directory and write MOTChallenge-style results.
@@ -318,6 +320,13 @@ class Worker:
         if sort_frames:
             frame_files = sorted(frame_files, key=lambda n: int(os.path.splitext(n)[0]))
 
+        #saving video
+        video_writer = None
+        if self.save_video:
+            if video_out_path is None:
+                video_out_path = out_path.replace(".txt", ".mp4")
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         with open(out_path, "w") as f_res:
             for idx, frame_name in enumerate(frame_files):
@@ -327,17 +336,11 @@ class Worker:
                     continue
                 orig_h, orig_w = img.shape[:2]
 
-                # # --- Safe resize for high-res frames (VisDrone etc.) ---
-                # max_w, max_h = 1280, 720
-                # if orig_w > max_w or orig_h > max_h:
-                #     scale = min(max_w / orig_w, max_h / orig_h)
-                #     new_w, new_h = int(orig_w * scale), int(orig_h * scale)
-                #     img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-                #     if idx < self.verbose_first_n_frames:
-                #         print(f"   [resize] downscaled from {orig_w}x{orig_h} → {new_w}x{new_h}")
-                #     orig_h, orig_w = img.shape[:2]
-                # # -------------------------------------------
-
+                if self.save_video and video_writer is None:
+                    video_writer = cv2.VideoWriter(
+                        video_out_path, fourcc, self.frame_rate, (orig_w, orig_h)
+                    )
+                    print(f"[{seq}] Saving video to: {video_out_path}")
 
                 #Only preprocess if using DINO
                 if self.detector_kind == "dino":
@@ -366,7 +369,23 @@ class Worker:
                     if w * h > self.min_box_area:
                         self._write_mot_line(f_res, frame_id, t.track_id, float(x), float(y), float(w), float(h))
 
+                if self.save_video and video_writer is not None:
+                    vis_frame = img.copy()
+                    for t in tracks:
+                        x, y, w, h = t.tlwh
+                        if w * h > self.min_box_area:
+                            x1, y1 = int(x), int(y)
+                            x2, y2 = int(x + w), int(y + h)
+                            cv2.rectangle(vis_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                            cv2.putText(vis_frame, f"ID:{t.track_id}", (x1, y1 - 5),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                    video_writer.write(vis_frame)
+
         print(f"[{seq}] Saved tracking results to: {out_path}")
+
+        if video_writer is not None:
+            video_writer.release()
+            print(f"[{seq}] Saved video to: {video_out_path}")
 
     def process_many(
         self,
@@ -465,6 +484,14 @@ if __name__ == "__main__":
             gpu_id = devices[i % len(devices)]
             out_path = os.path.join(root, f"{seq}.txt")
 
+            # Create video path for child process
+            if args.save_video:
+                video_folder = root.replace("/results", "/videos").replace("\\results", "\\videos")
+                if "results" not in root:
+                    video_folder = os.path.join(os.path.dirname(root), "videos")
+                os.makedirs(video_folder, exist_ok=True)
+                video_path = os.path.join(video_folder, f"{seq}.mp4")
+
             # build child cmd (single-seq mode)
             cmd = [
                 sys.executable, "-u", this_script,
@@ -487,6 +514,9 @@ if __name__ == "__main__":
             ]
             if args.use_fp16:
                 cmd.append("--use_fp16")
+            if args.save_video:
+                cmd.append("--save_video")
+                cmd.extend(["--video_out", video_path])
             for k, v in (tracker_kv or {}).items():
                 cmd.extend(["--tracker_kv", f"{k}={v}"])
 
@@ -495,7 +525,7 @@ if __name__ == "__main__":
 
             # Silence Python warnings from child processes
             env["PYTHONWARNINGS"] = "ignore::UserWarning,ignore::FutureWarning"
-            # Quiet Transformers’ logger a bit
+            # Quiet Transformers' logger a bit
             env["TRANSFORMERS_VERBOSITY"] = "error"
             # Headless/quiet Matplotlib to avoid Axes3D/backends noise
             env["MPLBACKEND"] = "Agg"
@@ -523,11 +553,13 @@ if __name__ == "__main__":
                         help="Glob(s) to select sequences under --img_folder (repeatable), e.g. --seq_glob '00*'")
     parser.add_argument("--all", action="store_true", help="Process all sequences under --img_folder.")
     parser.add_argument("--img_folder", required=True, type=str, help="Root containing sequence subfolders")
+    parser.add_argument("--save_video", action="store_true", help="Save tracking video for each sequence.")
 
     # Output controls
     parser.add_argument("--out", type=str, help="Output MOT file path (single sequence mode only). If not ending in .txt, treated as a directory.")
     parser.add_argument("--out_dir", type=str, default="outputs", help="Directory for per-sequence files")
     parser.add_argument("--timestamp", action="store_true", help="Append timestamp subfolder to outputs")
+    parser.add_argument("--video_out", type=str, default=None, help="Video output path (internal use)")
 
     # Model/tracker params
     parser.add_argument("--tracker", default="bytetrack", choices=list(TRACKER_REGISTRY.keys()))
@@ -571,13 +603,15 @@ if __name__ == "__main__":
             text_prompt=args.text_prompt,
             detector=args.detector,
             frame_rate=args.frame_rate,
+            save_video=args.save_video,
             min_box_area=args.min_box_area,
             config_path=args.config,
             weights_path=args.weights,
         )
         out_path = args.out if args.out.lower().endswith(".txt") else os.path.join(args.out, f"{args.seq[0]}.txt")
+        video_out = args.video_out if hasattr(args, 'video_out') and args.video_out else None
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        worker.process_sequence(seq=args.seq[0], img_folder=args.img_folder, out_path=out_path)
+        worker.process_sequence(seq=args.seq[0], img_folder=args.img_folder, out_path=out_path, video_out_path=video_out)
         raise SystemExit(0)
 
     # Parent / normal mode
@@ -602,6 +636,7 @@ if __name__ == "__main__":
             text_prompt=args.text_prompt,
             detector=args.detector,
             frame_rate=args.frame_rate,
+            save_video=args.save_video,
             min_box_area=args.min_box_area,
             config_path=args.config,
             weights_path=args.weights,
@@ -615,6 +650,15 @@ if __name__ == "__main__":
                 ts = datetime.now().strftime("%Y-%m-%d_%H%M")
                 root = os.path.join(root, ts)
             os.makedirs(root, exist_ok=True)
+
+            if worker.save_video:
+                video_folder = root.replace("/results", "/videos").replace("\\results", "\\videos")
+                if "results" not in root:
+                    video_folder = os.path.join(os.path.dirname(root), "videos")
+                os.makedirs(video_folder, exist_ok=True)
+
             for s in seqs:
                 out_path = os.path.join(root, f"{s}.txt")
-                worker.process_sequence(seq=s, img_folder=args.img_folder, out_path=out_path)
+                video_path = os.path.join(video_folder, f"{s}.mp4") if worker.save_video else None
+                worker.process_sequence(seq=s, img_folder=args.img_folder, out_path=out_path,
+                                    video_out_path=video_path)

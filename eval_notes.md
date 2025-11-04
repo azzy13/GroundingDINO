@@ -134,3 +134,150 @@ AVG            759.428571  0.086428  0.230755  0.100926  ...                 7.0
 ============================================================
 
 OPTUNA:MOTA=0.086428 IDF1=0.100926
+
+## AP numbers
+# how 2 run
+python3 eval_visdrone.py --config_file config/GroundingDINO_SwinB_cfg.py --checkpoint /isis/home/hasana3/vlmtest/GroundingDINO/weights/groundingdino_swinb_cogcoor.pth --coco_anno /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone/VisDrone2019-MOT-val/dataset_coco.json --image_root /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone/VisDrone2019-MOT-val
+
+# soft finetune - 10 epoch 1e-4
+DONE (t=2.67s).
+IoU metric: bbox
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.371
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets=100 ] = 0.710
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets=100 ] = 0.341
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.162
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.370
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.638
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=  1 ] = 0.029
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 10 ] = 0.201
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.490
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.321
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.496
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.706
+
+ # aggro fine tune 2e-4
+ Test: Total time: 0:06:41 (0.1412 s / it)
+Averaged stats: 
+Accumulating evaluation results...
+DONE (t=2.62s).
+IoU metric: bbox
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.360
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets=100 ] = 0.702
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets=100 ] = 0.325
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.162
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.360
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.620
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=  1 ] = 0.027
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 10 ] = 0.195
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.482
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.319
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.487
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.695
+
+ # original swinb groundingdino checkpoint
+ Accumulating evaluation results...
+DONE (t=2.77s).
+IoU metric: bbox
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.304
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets=100 ] = 0.595
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets=100 ] = 0.273
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.078
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.305
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.577
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=  1 ] = 0.028
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 10 ] = 0.192
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.419
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.251
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.418
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.661
+
+Results saved to ./output/results.json
+
+# MOTA on aggro ft checkpoint
+===== uav0000086_00000_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+uav0000086_00000_v        464 65.5% 0.244 74.8% 81.2% 69.3% 88.5% 75.5%  33 40 13 27  399 2196 5497       22410       16880
+
+===== uav0000117_02622_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+uav0000117_02622_v        349 39.5% 0.235 49.7% 65.9% 39.9% 83.4% 50.5% 150 25 82 27  266 1528 7529       15224        7545
+
+===== uav0000137_00458_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+uav0000137_00458_v        233 47.8% 0.220 60.7% 68.5% 54.6% 80.8% 64.3% 272 56 39 65  458 3226 7535       21118       13311
+
+===== uav0000182_00000_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+uav0000182_00000_v        363 10.9% 0.247 54.0% 53.6% 54.3% 55.6% 56.2%  28 30 30 26  128 4270 4157        9494        5309
+
+===== uav0000305_00000_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP   FN num_objects num_matches
+uav0000305_00000_v        184 52.8% 0.154 73.8% 80.6% 68.2% 81.5% 68.9%  19 22 16 13  41 759 1505        4839        3315
+
+===== uav0000339_00001_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM  FP   FN num_objects num_matches
+uav0000339_00001_v        275 43.7% 0.226 55.0% 74.2% 43.7% 87.6% 51.6%  60 26 19 20  165 748 4934       10203        5209
+====== AVERAGE ======
+                    num_frames      mota      motp      idf1  ...  num_false_positives   num_misses   num_objects   num_matches
+uav0000086_00000_v  464.000000  0.655243  0.244074  0.747899  ...          2196.000000  5497.000000  22410.000000  16880.000000
+uav0000117_02622_v  349.000000  0.395231  0.234655  0.496912  ...          1528.000000  7529.000000  15224.000000   7545.000000
+uav0000137_00458_v  233.000000  0.477555  0.219680  0.607483  ...          3226.000000  7535.000000  21118.000000  13311.000000
+uav0000182_00000_v  363.000000  0.109438  0.247091  0.539553  ...          4270.000000  4157.000000   9494.000000   5309.000000
+uav0000305_00000_v  184.000000  0.528208  0.154079  0.738468  ...           759.000000  1505.000000   4839.000000   3315.000000
+uav0000339_00001_v  275.000000  0.437224  0.226360  0.550185  ...           748.000000  4934.000000  10203.000000   5209.000000
+AVG                 311.333333  0.433817  0.220990  0.613417  ...          2121.166667  5192.833333  13881.333333   8594.833333
+
+[7 rows x 17 columns]
+
+============================================================
+📈 Summary: MOTA=43.38% | IDF1=61.34%
+============================================================
+
+OPTUNA:MOTA=0.433817 IDF1=0.613417
+
+✅ Complete! Results saved to: outputs/visdrone_val_2025-11-04_0611
+
+# MOTA on best ft checkpoint
+===== uav0000086_00000_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+uav0000086_00000_v        464 59.5% 0.240 74.1% 86.5% 64.8% 89.8% 67.2%  21 33 21 26  420 1709 7340       22410       15049
+
+===== uav0000117_02622_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM  FP   FN num_objects num_matches
+uav0000117_02622_v        349 34.6% 0.224 45.8% 72.0% 33.6% 87.8% 41.0% 106 18 92 24  199 867 8985       15224        6133
+
+===== uav0000137_00458_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+uav0000137_00458_v        233 47.8% 0.212 60.0% 73.6% 50.6% 85.5% 58.8% 229 50 44 66  436 2112 8692       21118       12197
+
+===== uav0000182_00000_v =====
+                   num_frames MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+uav0000182_00000_v        363 9.6% 0.230 45.3% 54.1% 39.0% 56.7% 40.8%  10 17 41 28  69 2957 5619        9494        3865
+
+===== uav0000305_00000_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP   FN num_objects num_matches
+uav0000305_00000_v        184 55.6% 0.166 74.9% 84.1% 67.4% 84.9% 68.0%  14 23 16 12  32 587 1547        4839        3278
+
+===== uav0000339_00001_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM  FP   FN num_objects num_matches
+uav0000339_00001_v        275 38.4% 0.206 50.0% 81.9% 36.0% 94.0% 41.3%  28 21 28 16  107 270 5991       10203        4184
+
+====== AVERAGE ======
+                    num_frames      mota      motp      idf1  ...  num_false_positives   num_misses   num_objects  num_matches
+uav0000086_00000_v  464.000000  0.595270  0.239684  0.741024  ...               1709.0  7340.000000  22410.000000      15049.0
+uav0000117_02622_v  349.000000  0.345901  0.224216  0.458039  ...                867.0  8985.000000  15224.000000       6133.0
+uav0000137_00458_v  233.000000  0.477555  0.212031  0.599899  ...               2112.0  8692.000000  21118.000000      12197.0
+uav0000182_00000_v  363.000000  0.095639  0.230224  0.453142  ...               2957.0  5619.000000   9494.000000       3865.0
+uav0000305_00000_v  184.000000  0.556107  0.166252  0.748566  ...                587.0  1547.000000   4839.000000       3278.0
+uav0000339_00001_v  275.000000  0.383613  0.206180  0.500102  ...                270.0  5991.000000  10203.000000       4184.0
+AVG                 311.333333  0.409014  0.213098  0.583462  ...               1417.0  6362.333333  13881.333333       7451.0
+
+[7 rows x 17 columns]
+
+============================================================
+📈 Summary: MOTA=40.90% | IDF1=58.35%
+============================================================
+
+OPTUNA:MOTA=0.409014 IDF1=0.583462
+
+✅ Complete! Results saved to: outputs/visdrone_val_2025-11-04_0622

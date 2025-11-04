@@ -96,8 +96,9 @@ def main():
     ap.add_argument('--weights', type=str,
                    default="weights/groundingdino_swinb_cogcoor.pth")
     ap.add_argument('--min_box_area', type=int, default=10)
-    ap.add_argument('--frame_rate', type=int, default=None)
+    ap.add_argument('--frame_rate', type=int, default=25)
     ap.add_argument('--fp16', action='store_true')
+    ap.add_argument('--save_video', action='store_true')
     ap.add_argument('--devices', type=str, default="0")
     ap.add_argument('--jobs', type=int, default=1)
     ap.add_argument('--outdir', type=str, default=None)
@@ -175,6 +176,8 @@ def main():
     ]
     if args.fp16:
         cmd.append("--use_fp16")
+    if args.save_video:
+        cmd.append("--save_video")
 
     print(f"\n🚀 Running tracking on {len(sequences)} sequences...\n")
     print("Command:")
