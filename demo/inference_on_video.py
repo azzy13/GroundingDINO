@@ -11,7 +11,7 @@ from torch.cuda.amp import autocast
 
 CONFIG_PATH = "groundingdino/config/GroundingDINO_SwinT_OGC.py"
 WEIGHTS_PATH = "weights/groundingdino_swint_ogc.pth"
-TEXT_PROMPT = "trucks only"
+TEXT_PROMPT = "a red. car."
 BOX_THRESHOLD = 0.35
 TEXT_THRESHOLD = 0.25
 

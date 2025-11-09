@@ -16,6 +16,7 @@ from PIL import Image
 from torchvision import transforms as T
 from torch.cuda.amp import autocast
 import clip
+import pandas as pd
 
 from groundingdino.util.inference import load_model, predict
 from demo.florence2_adapter import Florence2Detector
@@ -35,13 +36,41 @@ TRACKER_REGISTRY: Dict[str, Tuple[str, str]] = {
     "clip": ("tracker.tracker_w_clip", "CLIPTracker"),
 }
 
-def _build_normalize_transform() -> T.Compose:
+def _build_normalize_transform():
+    def resize_if_needed(img):
+        w, h = img.size
+        short_side = min(w, h)
+        if short_side > 800:
+            scale = 800 / short_side
+            new_w, new_h = int(w * scale), int(h * scale)
+            return img.resize((new_w, new_h))
+        else:
+            return img
     return T.Compose([
-        T.Resize(800),
+        T.Lambda(resize_if_needed),
         T.ToTensor(),
         T.Normalize(mean=[0.485, 0.456, 0.406],
                     std=[0.229, 0.224, 0.225]),
     ])
+
+
+def _parse_frame_id(frame_name: str) -> int:
+    """
+    Extract integer frame id from a filename.
+
+    Works for:
+      - '000001.jpg'      -> 1
+      - 'img000001.jpg'   -> 1
+      - 'frame_12.png'    -> 12
+
+    Uses trailing digits in the stem; raises if none.
+    """
+    stem = os.path.splitext(frame_name)[0]
+    digits = ''.join(ch for ch in stem if ch.isdigit())
+    if not digits:
+        raise ValueError(f"Cannot parse frame id from filename: {frame_name}")
+    return int(digits)
+
 
 def _convert_dino_to_xyxy(
     boxes: Iterable[Iterable[float]],
@@ -303,6 +332,7 @@ class Worker:
         *,
         seq: str,
         img_folder: str,
+        gt_folder: str,
         out_path: str,
         sort_frames: bool = True,
         video_out_path: Optional[str] = None,
@@ -313,12 +343,16 @@ class Worker:
         Expects images in: os.path.join(img_folder, seq) with frame files named as integers.
         """
         seq_path = os.path.join(img_folder, seq)
+        gt_txt_file = os.path.join(gt_folder, "gt", seq+".txt")
+        gt_pandas_data = pd.read_csv(gt_txt_file, header=None, names=[
+            "frame", "id", "bb_left", "bb_top", "bb_width", "bb_height","x1", "x2", "x3", "x4"],sep=",")
+        gt_pandas_data.sort_values(by="frame", inplace=True)
         if not os.path.isdir(seq_path):
             raise FileNotFoundError(f"Sequence path does not exist: {seq_path}")
 
         frame_files = [f for f in os.listdir(seq_path) if os.path.isfile(os.path.join(seq_path, f))]
         if sort_frames:
-            frame_files = sorted(frame_files, key=lambda n: int(os.path.splitext(n)[0]))
+            frame_files = sorted(frame_files, key=_parse_frame_id)
 
         #saving video
         video_writer = None
@@ -330,7 +364,7 @@ class Worker:
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         with open(out_path, "w") as f_res:
             for idx, frame_name in enumerate(frame_files):
-                frame_id = int(os.path.splitext(frame_name)[0])
+                frame_id = _parse_frame_id(frame_name)
                 img = cv2.imread(os.path.join(seq_path, frame_name))
                 if img is None:
                     continue
@@ -371,6 +405,7 @@ class Worker:
 
                 if self.save_video and video_writer is not None:
                     vis_frame = img.copy()
+                    # Predicted tracks
                     for t in tracks:
                         x, y, w, h = t.tlwh
                         if w * h > self.min_box_area:
@@ -379,6 +414,18 @@ class Worker:
                             cv2.rectangle(vis_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                             cv2.putText(vis_frame, f"ID:{t.track_id}", (x1, y1 - 5),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                    #  Ground truth tracks
+                    gt_frame_data = gt_pandas_data[gt_pandas_data["frame"] == frame_id]
+                    for _, row in gt_frame_data.iterrows():
+                        x1 = int(row["bb_left"])
+                        y1 = int(row["bb_top"])
+                        w = int(row["bb_width"])
+                        h = int(row["bb_height"])
+                        x2 = x1 + w
+                        y2 = y1 + h
+                        cv2.rectangle(vis_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                        cv2.putText(vis_frame, f"GT ID:{int(row['id'])}", (x1+w, y1 - 5),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
                     video_writer.write(vis_frame)
 
         print(f"[{seq}] Saved tracking results to: {out_path}")
@@ -393,12 +440,13 @@ class Worker:
         seqs: Iterable[str],
         img_folder: str,
         res_folder: str,
+        gt_folder: str,
         suffix: str = ".txt",
     ):
         os.makedirs(res_folder, exist_ok=True)
         for seq in seqs:
             out_path = os.path.join(res_folder, f"{seq}{suffix}")
-            self.process_sequence(seq=seq, img_folder=img_folder, out_path=out_path)
+            self.process_sequence(seq=seq, img_folder=img_folder, gt_folder=gt_folder, out_path=out_path)
 
 
 # ----------------------------
@@ -611,7 +659,7 @@ if __name__ == "__main__":
         out_path = args.out if args.out.lower().endswith(".txt") else os.path.join(args.out, f"{args.seq[0]}.txt")
         video_out = args.video_out if hasattr(args, 'video_out') and args.video_out else None
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        worker.process_sequence(seq=args.seq[0], img_folder=args.img_folder, out_path=out_path, video_out_path=video_out)
+        worker.process_sequence(seq=args.seq[0], img_folder=args.img_folder, gt_folder=os.path.join(args.img_folder,  ".."), out_path=out_path, video_out_path=video_out)
         raise SystemExit(0)
 
     # Parent / normal mode
@@ -643,7 +691,7 @@ if __name__ == "__main__":
         )
         if len(seqs) == 1:
             out_path = resolve_single_out(seqs[0], args.out, args.out_dir, args.timestamp)
-            worker.process_sequence(seq=seqs[0], img_folder=args.img_folder, out_path=out_path)
+            worker.process_sequence(seq=seqs[0], img_folder=args.img_folder, gt_folder=os.path.join(args.img_folder,  ".."),out_path=out_path)
         else:
             root = args.out_dir
             if args.timestamp:
@@ -660,5 +708,5 @@ if __name__ == "__main__":
             for s in seqs:
                 out_path = os.path.join(root, f"{s}.txt")
                 video_path = os.path.join(video_folder, f"{s}.mp4") if worker.save_video else None
-                worker.process_sequence(seq=s, img_folder=args.img_folder, out_path=out_path,
+                worker.process_sequence(seq=s, img_folder=args.img_folder, out_path=out_path, gt_folder=os.path.join(args.img_folder,  ".."),
                                     video_out_path=video_path)

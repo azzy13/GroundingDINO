@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-VisDrone MOT Evaluation Runner
-Mirrors eval_mot17.py but customized for VisDrone MOT-format datasets.
+UA-DETRAC MOT Evaluation Runner
+Evaluation script for UA-DETRAC dataset using worker.py + motmetrics
 
 Usage:
-    python eval/eval_visdrone.py \
-        --data_root dataset/visdrone_mot_format \
-        --split val \
-        --text_prompt "pedestrian. car. van. bus. truck."
+    python eval/eval_uadetrac.py \
+        --data_root dataset/uadetrac_mot_format \
+        --split test \
+        --text_prompt "car. van. bus. others."
 """
 
 import os
@@ -23,15 +23,23 @@ from compute_metrics import MotMetricsEvaluator
 WORKER_PY = Path(__file__).resolve().parent / "worker.py"
 
 DATASET_DEFAULTS = {
-    'visdrone': {'text_prompt': 'pedestrian. car. van. bus. truck.', 'frame_rate': 25},
+    'uadetrac': {
+        'text_prompt': 'car. van. bus. others.',  # UA-DETRAC classes
+        'frame_rate': 25  # UA-DETRAC is typically 25fps
+    },
 }
 
 # ----------------------------------------------------------------------
-# Utility: symlink image folders (VisDrone has seq/img1)
+# Utility: symlink image folders (UA-DETRAC has seq/img1 structure)
 # ----------------------------------------------------------------------
 def create_image_symlinks(data_root, split, out_folder):
     os.makedirs(out_folder, exist_ok=True)
     split_path = os.path.join(data_root, split)
+    
+    if not os.path.exists(split_path):
+        print(f"⚠️  Split path does not exist: {split_path}")
+        return []
+    
     sequences = sorted([
         d for d in os.listdir(split_path)
         if os.path.isdir(os.path.join(split_path, d))
@@ -61,9 +69,13 @@ def create_image_symlinks(data_root, split, out_folder):
 # ----------------------------------------------------------------------
 # Utility: copy GTs into output/gt folder (flat format)
 # ----------------------------------------------------------------------
-def copy_visdrone_gt(data_root, split, out_folder):
+def copy_uadetrac_gt(data_root, split, out_folder):
     src_split = os.path.join(data_root, split)
     os.makedirs(out_folder, exist_ok=True)
+
+    if not os.path.exists(src_split):
+        print(f"⚠️  Split path does not exist: {src_split}")
+        return
 
     copied = 0
     for seq in sorted(os.listdir(src_split)):
@@ -80,9 +92,9 @@ def copy_visdrone_gt(data_root, split, out_folder):
 # Main
 # ----------------------------------------------------------------------
 def main():
-    ap = argparse.ArgumentParser(description="VisDrone MOT evaluation using worker.py + motmetrics")
-    ap.add_argument('--data_root', required=True, help="Path to VisDrone MOT-format dataset root")
-    ap.add_argument('--split', default='val', choices=['train', 'val', 'test'], help="Dataset split")
+    ap = argparse.ArgumentParser(description="UA-DETRAC MOT evaluation using worker.py + motmetrics")
+    ap.add_argument('--data_root', required=True, help="Path to UA-DETRAC MOT-format dataset root")
+    ap.add_argument('--split', default='test', choices=['train', 'test'], help="Dataset split")
     ap.add_argument('--box_threshold', type=float, default=0.25)
     ap.add_argument('--text_threshold', type=float, default=0.10)
     ap.add_argument('--track_thresh', type=float, default=0.30)
@@ -95,8 +107,8 @@ def main():
                    default="groundingdino/config/GroundingDINO_SwinB_cfg.py")
     ap.add_argument('--weights', type=str,
                    default="weights/groundingdino_swinb_cogcoor.pth")
-    ap.add_argument('--min_box_area', type=int, default=10)
-    ap.add_argument('--frame_rate', type=int, default=30)
+    ap.add_argument('--min_box_area', type=int, default=150)  # Larger min area for UA-DETRAC
+    ap.add_argument('--frame_rate', type=int, default=25)  # UA-DETRAC is 25fps
     ap.add_argument('--fp16', action='store_true')
     ap.add_argument('--save_video', action='store_true')
     ap.add_argument('--devices', type=str, default="0")
@@ -107,7 +119,7 @@ def main():
     # ------------------------------------------------------------------
     # Setup defaults
     # ------------------------------------------------------------------
-    dataset_name = "visdrone"
+    dataset_name = "uadetrac"
     defaults = DATASET_DEFAULTS[dataset_name]
     text_prompt = args.text_prompt or defaults['text_prompt']
     frame_rate = args.frame_rate or defaults['frame_rate']
@@ -130,15 +142,20 @@ def main():
     os.makedirs(temp_images, exist_ok=True)
 
     print(f"\n{'='*60}")
-    print(f"VisDrone Evaluation - Split: {args.split.upper()}")
+    print(f"UA-DETRAC Evaluation - Split: {args.split.upper()}")
     print(f"Output directory: {run_outdir}")
     print(f"{'='*60}\n")
 
     # ------------------------------------------------------------------
     # Copy ground truth and link images
     # ------------------------------------------------------------------
-    copy_visdrone_gt(args.data_root, args.split, out_gt)
+    copy_uadetrac_gt(args.data_root, args.split, out_gt)
     sequences = create_image_symlinks(args.data_root, args.split, temp_images)
+
+    if not sequences:
+        print("\n⚠️  No sequences found! Please check your dataset path and structure.")
+        print(f"Expected structure: {args.data_root}/{args.split}/MVI_*/img1/")
+        sys.exit(1)
 
     print(f"\n⚙️  Tracking parameters:")
     print(f"   Text prompt: {text_prompt}")
@@ -147,6 +164,7 @@ def main():
     print(f"   Track threshold: {args.track_thresh}")
     print(f"   Match threshold: {args.match_thresh}")
     print(f"   Track buffer: {args.track_buffer}")
+    print(f"   Min box area: {args.min_box_area}")
     print(f"   Detector: {args.detector}")
     print(f"   Tracker: {args.tracker}")
     print(f"   Total sequences: {len(sequences)}")

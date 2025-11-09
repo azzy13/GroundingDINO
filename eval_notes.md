@@ -281,3 +281,57 @@ AVG                 311.333333  0.409014  0.213098  0.583462  ...               
 OPTUNA:MOTA=0.409014 IDF1=0.583462
 
 ✅ Complete! Results saved to: outputs/visdrone_val_2025-11-04_0622
+
+# Aggro ft checkpoint all sequences
+📂 Found 7 GT files and 7 result files
+
+===== uav0000086_00000_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+uav0000086_00000_v        464 65.5% 0.244 74.8% 81.2% 69.4% 88.4% 75.5%  32 40 13 27  403 2220 5490       22410       16888
+
+===== uav0000117_02622_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+uav0000117_02622_v        349 39.5% 0.235 49.4% 65.4% 39.7% 83.4% 50.6% 156 25 81 28  267 1529 7522       15224        7546
+
+===== uav0000137_00458_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+uav0000137_00458_v        233 47.7% 0.220 60.4% 68.0% 54.3% 80.8% 64.5% 309 56 38 66  479 3238 7505       21118       13304
+
+===== uav0000182_00000_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+uav0000182_00000_v        363 10.6% 0.247 53.8% 53.4% 54.2% 55.4% 56.2%  28 30 30 26  128 4299 4157        9494        5309
+
+===== uav0000268_05773_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP   FN num_objects num_matches
+uav0000268_05773_v        978 22.0% 0.129 37.7% 93.5% 23.6% 93.5% 23.6%   1  5 38  7  18 214 9981       13068        3086
+
+===== uav0000305_00000_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP   FN num_objects num_matches
+uav0000305_00000_v        184 52.7% 0.154 73.8% 80.5% 68.2% 81.3% 68.9%  19 22 16 13  41 765 1505        4839        3315
+
+===== uav0000339_00001_v =====
+                   num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM  FP   FN num_objects num_matches
+uav0000339_00001_v        275 43.8% 0.226 55.1% 74.3% 43.8% 87.7% 51.7%  67 26 19 20  165 742 4930       10203        5206
+
+====== AVERAGE ======
+                    num_frames      mota      motp      idf1  ...  num_false_positives  num_misses   num_objects   num_matches
+uav0000086_00000_v  464.000000  0.654529  0.244114  0.748303  ...          2220.000000      5490.0  22410.000000  16888.000000
+uav0000117_02622_v  349.000000  0.395231  0.234929  0.493723  ...          1529.000000      7522.0  15224.000000   7546.000000
+uav0000137_00458_v  233.000000  0.476655  0.219823  0.603650  ...          3238.000000      7505.0  21118.000000  13304.000000
+uav0000182_00000_v  363.000000  0.106383  0.247132  0.537689  ...          4299.000000      4157.0   9494.000000   5309.000000
+uav0000268_05773_v  978.000000  0.219773  0.129350  0.377054  ...           214.000000      9981.0  13068.000000   3086.000000
+uav0000305_00000_v  184.000000  0.526968  0.154061  0.737973  ...           765.000000      1505.0   4839.000000   3315.000000
+uav0000339_00001_v  275.000000  0.437518  0.226401  0.551239  ...           742.000000      4930.0  10203.000000   5206.000000
+AVG                 406.571429  0.402437  0.207973  0.578519  ...          1858.142857      5870.0  13765.142857   7807.714286
+
+[8 rows x 17 columns]
+
+============================================================
+📈 Summary: MOTA=40.24% | IDF1=57.85%
+============================================================
+
+OPTUNA:MOTA=0.402437 IDF1=0.578519
+
+✅ Complete! Results saved to: outputs/visdrone_val_2025-11-04_0657
+
+# lower lr finetuning checkpoint all sequeneces
