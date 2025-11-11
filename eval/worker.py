@@ -624,6 +624,24 @@ if __name__ == "__main__":
     parser.add_argument("--frame_rate", type=int, default=DEFAULT_FRAME_RATE)
     parser.add_argument("--tracker_kv", action="append", help="extra tracker args as key=val (repeatable)")
 
+    # ----------------------------------------------------------
+    # CLIP-specific / fusion arguments (pass-through to CLIPTracker)
+    # ----------------------------------------------------------
+    parser.add_argument("--lambda_weight", type=float, default=0.25,
+                        help="Weight for CLIP embedding cost in IoU+CLIP fusion (0=IoU only, 1=CLIP only)")
+    parser.add_argument("--low_thresh", type=float, default=0.1,
+                        help="Low detection score threshold for second-stage association")
+    parser.add_argument("--text_sim_thresh", type=float, default=0.0,
+                        help="Minimum CLIP text similarity for detection gating (0 disables gating)")
+
+    parser.add_argument("--use_clip_in_high", action="store_true",
+                        help="Use CLIP fusion in high-confidence association stage")
+    parser.add_argument("--use_clip_in_low", action="store_true",
+                        help="Use CLIP fusion in low-confidence association stage")
+    parser.add_argument("--use_clip_in_unconf", action="store_true",
+                        help="Use CLIP fusion in unconfirmed stage")
+
+
     # Built-in dispatcher (optional)
     parser.add_argument("--devices", type=str, help="Comma-separated GPU ids to use for dispatch, e.g. '0,1'. If set (and multiple seqs), worker will spawn one child per seq.")
     parser.add_argument("--jobs", type=int, default=1, help="Max concurrent child processes (<= #devices recommended).")
@@ -636,6 +654,15 @@ if __name__ == "__main__":
         track_buffer=args.track_buffer,
         match_thresh=args.match_thresh,
     )
+    tracker_kwargs.update({
+        "lambda_weight": args.lambda_weight,
+        "low_thresh": args.low_thresh,
+        "text_sim_thresh": args.text_sim_thresh,
+        "use_clip_in_high": args.use_clip_in_high,
+        "use_clip_in_low": args.use_clip_in_low,
+        "use_clip_in_unconf": args.use_clip_in_unconf,
+    })
+
     tracker_kwargs.update(parse_kv_list(args.tracker_kv))
 
     # Child mode: run exactly one sequence with given --out

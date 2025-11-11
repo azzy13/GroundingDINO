@@ -1,4 +1,4 @@
-swinb best 
+# swinb best 
 0016        209 49.5% 0.222 69.1% 87.1% 57.3% 87.9% 57.9%  11  6  4  106 228 1206        2863
 
 ===== 0018 =====
@@ -334,4 +334,75 @@ OPTUNA:MOTA=0.402437 IDF1=0.578519
 
 ✅ Complete! Results saved to: outputs/visdrone_val_2025-11-04_0657
 
-# lower lr finetuning checkpoint all sequeneces
+# kitti optuna params, light ckpt bytetrack
+📂 Found 5 GT files and 5 result files
+
+===== 0015 =====
+     num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP  FN num_objects num_matches
+0015        376 51.4% 0.249 71.0% 71.6% 70.4% 76.7% 75.5%  21  7  3 10  52 378 404        1651        1226
+
+===== 0016 =====
+     num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP   FN num_objects num_matches
+0016        209 41.5% 0.266 58.4% 74.6% 48.0% 82.8% 53.3%  23  4  4 15  78 316 1337        2863        1503
+
+===== 0018 =====
+     num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP  FN num_objects num_matches
+0018        325 71.9% 0.149 84.6% 86.9% 82.4% 88.1% 83.5%   4  5  0 13   8 153 223        1354        1127
+
+===== 0019 =====
+     num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+0019       1059 31.9% 0.288 57.7% 58.7% 56.8% 66.9% 64.8%  59 14  5 50  216 2249 2472        7015        4484
+
+===== 0020 =====
+     num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP   FN num_objects num_matches
+0020        837 47.3% 0.192 66.3% 76.0% 58.7% 80.7% 62.4%  11 15 30 68  42 818 2068        5497        3418
+
+====== AVERAGE ======
+      num_frames      mota      motp      idf1  ...  num_false_positives  num_misses  num_objects  num_matches
+0015       376.0  0.513628  0.249234  0.710012  ...                378.0       404.0       1651.0       1226.0
+0016       209.0  0.414600  0.265821  0.584485  ...                316.0      1337.0       2863.0       1503.0
+0018       325.0  0.719350  0.149185  0.846096  ...                153.0       223.0       1354.0       1127.0
+0019      1059.0  0.318603  0.288179  0.577388  ...               2249.0      2472.0       7015.0       4484.0
+0020       837.0  0.472985  0.192182  0.662767  ...                818.0      2068.0       5497.0       3418.0
+AVG        561.2  0.487833  0.228920  0.676149  ...                782.8      1300.8       3676.0       2351.6
+
+[6 rows x 17 columns]
+OPTUNA:MOTA=0.487833 IDF1=0.676149
+
+# clip (light)
+
+
+# kitti optuna params, aggro ckpt bytetrack
+📂 Found 5 GT files and 5 result files
+
+===== 0015 =====
+     num_frames   MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP  FN num_objects num_matches
+0015        376 -20.7% 0.252 53.4% 42.2% 72.6% 44.4% 76.3%  22  6  3 11  56 1580 391        1651        1238
+
+===== 0016 =====
+     num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM  FP   FN num_objects num_matches
+0016        209 45.6% 0.270 62.5% 72.3% 55.0% 80.6% 61.3%  28  8  3 12  110 423 1107        2863        1728
+
+===== 0018 =====
+     num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP  FN num_objects num_matches
+0018        336 69.8% 0.156 83.4% 80.6% 86.4% 82.7% 88.6%   4  7  0 11   9 251 154        1354        1196
+
+===== 0019 =====
+     num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+0019       1059 16.7% 0.304 54.2% 50.3% 58.7% 57.6% 67.2%  71 14  2 53  281 3472 2302        7015        4642
+
+===== 0020 =====
+     num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+0020        837 50.8% 0.206 70.3% 74.1% 66.9% 78.3% 70.7%  12 24 30 59  54 1080 1610        5497        3875
+
+====== AVERAGE ======
+      num_frames      mota      motp      idf1  ...  num_false_positives  num_misses  num_objects  num_matches
+0015       376.0 -0.207147  0.251644  0.533511  ...               1580.0       391.0       1651.0       1238.0
+0016       209.0  0.455816  0.270276  0.624752  ...                423.0      1107.0       2863.0       1728.0
+0018       336.0  0.697932  0.155930  0.834225  ...                251.0       154.0       1354.0       1196.0
+0019      1059.0  0.166785  0.303633  0.541579  ...               3472.0      2302.0       7015.0       4642.0
+0020       837.0  0.508459  0.206068  0.703364  ...               1080.0      1610.0       5497.0       3875.0
+AVG        563.4  0.324369  0.237510  0.647486  ...               1361.2      1112.8       3676.0       2535.8
+
+[6 rows x 17 columns]
+OPTUNA:MOTA=0.324369 IDF1=0.647486

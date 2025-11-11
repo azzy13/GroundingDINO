@@ -1,13 +1,7 @@
 import numpy as np
-from collections import deque
-import os
-import os.path as osp
-import copy
-import torch
 import torch.nn.functional as F
 
 from .kalman_filter import KalmanFilter
-from .ctra_kalman_filter import CTRAKalmanFilter
 from tracker import matching
 from .basetrack import BaseTrack, TrackState
 
@@ -53,7 +47,6 @@ class STrack(BaseTrack):
         self.state = TrackState.Tracked
         if frame_id == 1:
             self.is_activated = True
-        # self.is_activated = True
         self.frame_id = frame_id
         self.start_frame = frame_id
 

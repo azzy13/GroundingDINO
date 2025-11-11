@@ -19,19 +19,47 @@ python3 demo/inference.py --video ./videos/car2.mp4 --output ./outputs/annotated
 python3 demo/inference_w_clip.py --video ./videos/color.mp4 --output ./outputs/color.mp4 --fp16
 
 # eval on coco 2017
-python3 demo/test_ap_on_coco.py -c groundingdino/config/GroundingDINO_SwinB_cfg.py -p weights/groundingdino_swinb_cogcoor.pth --anno_path /isis/home/hasana3/vlmtest/GroundingDINO/dataset/coco/annotations/instances_val2017.json --image_dir /isis/home/hasana3/vlmtest/GroundingDINO/dataset/coco/val2017
+python3 demo/test_ap_on_coco.py -c groundingdino/config/GroundingDINO_SwinB_cfg.py \
+-p weights/groundingdino_swinb_cogcoor.pth \
+--anno_path /isis/home/hasana3/vlmtest/GroundingDINO/dataset/coco/annotations/instances_val2017.json \
+--image_dir /isis/home/hasana3/vlmtest/GroundingDINO/dataset/coco/val2017
 
 # eval on visdrone
-python3 eval/eval_visdrone.py --data_root /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone_mot_format   --split val   --box_threshold 0.4   --text_threshold 0.8   --track_thresh 0.45   --match_thresh 0.85    --text_prompt "car. pedestrian." --jobs 2 --devices 0,1 --fp16 --weights /isis/home/hasana3/vlmtest/GroundingDINO/weights/swinb_light_visdrone_ft_best.pth --save_video --frame_rate 24
+python3 eval/eval_visdrone.py \
+--data_root /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone_mot_format \
+--split val   --box_threshold 0.4   --text_threshold 0.8   --track_thresh 0.45   --match_thresh 0.85 \
+--text_prompt "car. pedestrian." --jobs 2 --devices 0,1 --fp16 \
+--weights /isis/home/hasana3/vlmtest/GroundingDINO/weights/swinb_light_visdrone_ft_best.pth \
+--save_video --frame_rate 24
+
+python3 eval/eval_visdrone.py \
+--data_root /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone_mot_format \
+--split val   --box_threshold 0.4   --text_threshold 0.8   --track_thresh 0.45   --match_thresh 0.85 \
+--text_prompt "car. pedestrian." --jobs 2 --devices 0,1 --fp16 --tracker clip \
+--weights /isis/home/hasana3/vlmtest/GroundingDINO/weights/swinb_light_visdrone_ft_best.pth \
+--save_video --frame_rate 24
 
 # eval visdrone aggressive
-python3 eval/eval_visdrone.py --data_root /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone_mot_format   --split val   --box_threshold 0.4   --text_threshold 0.8   --track_thresh 0.45   --match_thresh 0.85    --text_prompt "car. pedestrian." --jobs 2 --devices 0,1 --fp16 --weights /isis/home/hasana3/vlmtest/GroundingDINO/weights/swinb_aggro_visdrone_ft.pth --save_video --frame_rate 24
+python3 eval/eval_visdrone.py \
+--data_root /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone_mot_format \
+--split val   --box_threshold 0.4   --text_threshold 0.8   --track_thresh 0.45   --match_thresh 0.85    --text_prompt "car. pedestrian." --jobs 4 --devices 0,1 --fp16 --tracker clip \
+--weights /isis/home/hasana3/vlmtest/GroundingDINO/weights/swinb_aggro_visdrone_ft.pth --frame_rate 24 
+
+python3 eval/eval_visdrone.py \
+--data_root /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone_mot_format \
+--split val   --box_threshold 0.4   --text_threshold 0.8   --track_thresh 0.45   --match_thresh 0.85    --text_prompt "car. pedestrian." --jobs 4 --devices 0,1 --fp16 --tracker clip \
+--weights /isis/home/hasana3/vlmtest/GroundingDINO/weights/swinb_aggro_visdrone_ft.pth --frame_rate 24 --tracker clip --use_clip_in_low \
+--use_clip_in_unconf --lambda_weight 0.25 --text_sim_thresh 0.2
 
 # eval UADETRAC
-python3 eval/eval_uadetrac.py --data_root /isis/home/hasana3/vlmtest/GroundingDINO/dataset/DETRAC --split test --text_prompt "car. van. bus." --jobs 2 --devices 0,1 --fp16 --weights /isis/home/hasana3/vlmtest/GroundingDINO/weights/swinb_light_visdrone_ft_best.pth --save_video --frame_rate 24
+python3 eval/eval_uadetrac.py --data_root /isis/home/hasana3/vlmtest/GroundingDINO/dataset/DETRAC --split test --text_prompt "car. van. bus." --jobs 2 --devices 0,1 --fp16  --tracker clip \
+--frame_rate 24  --box_threshold 0.4   --text_threshold 0.8   --track_thresh 0.45   --match_thresh 0.85 
 
 # eval UAVDT
-python3 eval/eval_uavdt.py --data_root /isis/home/hasana3/vlmtest/GroundingDINO/dataset/UAV --jobs 2 --devices 0,1 --fp16 --weights /isis/home/hasana3/vlmtest/GroundingDINO/weights/swinb_light_visdrone_ft_best.pth --save_video --frame_rate 24 --text_prompt "car. van. bus."
+python3 eval/eval_uavdt.py --data_root /isis/home/hasana3/vlmtest/GroundingDINO/dataset/UAV \
+--jobs 2 --devices 0,1 --fp16 --split test \
+--weights /isis/home/hasana3/vlmtest/GroundingDINO/weights/swinb_light_visdrone_ft_best.pth \
+--save_video --frame_rate 30 --text_prompt "car. van. bus."  --box_threshold 0.4   --text_threshold 0.8   --track_thresh 0.45   --match_thresh 0.85 
 
 # eval on kitti
 python3 eval/eval.py --fp16

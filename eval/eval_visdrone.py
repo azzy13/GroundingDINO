@@ -102,6 +102,22 @@ def main():
     ap.add_argument('--devices', type=str, default="0")
     ap.add_argument('--jobs', type=int, default=1)
     ap.add_argument('--outdir', type=str, default=None)
+
+    # CLIP-specific / tracker fusion hyperparams
+    ap.add_argument("--lambda_weight", type=float, default=0.25,
+                    help="Weight for CLIP embedding cost in IoU+CLIP fusion (0=IoU only, 1=CLIP only)")
+    ap.add_argument("--low_thresh", type=float, default=0.1,
+                    help="Low detection score threshold for second-stage association")
+    ap.add_argument("--text_sim_thresh", type=float, default=0.0,
+                    help="Minimum CLIP text similarity for detection gating (0 disables gating)")
+
+    # Booleans for enabling/disabling CLIP fusion in stages
+    ap.add_argument("--use_clip_in_high", action="store_true",
+                    help="Use CLIP fusion in high-confidence association stage")
+    ap.add_argument("--use_clip_in_low", action="store_true",
+                    help="Use CLIP fusion in low-confidence association stage")
+    ap.add_argument("--use_clip_in_unconf", action="store_true",
+                    help="Use CLIP fusion in unconfirmed stage")
     args = ap.parse_args()
 
     # ------------------------------------------------------------------
@@ -178,6 +194,19 @@ def main():
         cmd.append("--use_fp16")
     if args.save_video:
         cmd.append("--save_video")
+    # CLIP / fusion hyperparams → forwarded to worker.py / CLIPTracker
+    cmd += [
+        "--lambda_weight", str(args.lambda_weight),
+        "--low_thresh", str(args.low_thresh),
+        "--text_sim_thresh", str(args.text_sim_thresh),
+    ]
+
+    if args.use_clip_in_high:
+        cmd.append("--use_clip_in_high")
+    if args.use_clip_in_low:
+        cmd.append("--use_clip_in_low")
+    if args.use_clip_in_unconf:
+        cmd.append("--use_clip_in_unconf")
 
     print(f"\n🚀 Running tracking on {len(sequences)} sequences...\n")
     print("Command:")
