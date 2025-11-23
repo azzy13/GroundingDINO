@@ -1,6 +1,6 @@
 ### python3 eval/eval_visdrone.py --data_root /isis/home/hasana3/vlmtest/GroundingDINO/dataset/visdrone_mot_format --split val   
 --box_threshold 0.4   --text_threshold 0.8   --track_thresh 0.45   --match_thresh 0.85    --text_prompt "car. pedestrian." --jobs 2 
---devices 0,1 --fp16 --tracker clip --weights /isis/home/hasana3/vlmtest/GroundingDINO/weights/swinb_aggro_visdrone_ft.pth --frame_rate 24 --tracker clip --use_clip_in_low --use_clip_in_unconf --lambda_weight 0.25 --text_sim_thresh 0.1 
+--devices 0,1 --fp16 --tracker clip --weights /isis/home/hasana3/vlmtest/GroundingDINO/weights/swinb_aggro_visdrone_ft.pth --frame_rate 24 --use_clip_in_low --use_clip_in_unconf --lambda_weight 0.25 --text_sim_thresh 0.1 
 ###
 
 📂 Found 7 GT files and 7 result files

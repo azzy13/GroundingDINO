@@ -380,3 +380,219 @@ OPTUNA:MOTA=0.537476 IDF1=0.757049
 
 # clip (light) --tracker clip --use_clip_in_low --use_clip_in_unconf --lambda_weight 0.25 --text_sim_thresh 0.1 
 
+
+📂 Found 40 GT files and 40 result files
+
+===== MVI_39031 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP   FN num_objects num_matches
+MVI_39031       1470 68.3% 0.183 82.5% 92.3% 74.5% 92.3% 74.5%   0 21  1 24  29 647 2637       10354        7717
+
+===== MVI_39051 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP  FN num_objects num_matches
+MVI_39051       1062 76.1% 0.129 88.4% 85.9% 91.0% 85.9% 91.0%   0 28  0  2   1 364 221        2443        2222
+
+===== MVI_39211 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP  FN num_objects num_matches
+MVI_39211       1660 73.0% 0.198 87.1% 83.3% 91.3% 83.3% 91.3%   0 17  1  3   8 792 378        4329        3951
+
+===== MVI_39271 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_39271       1570 65.6% 0.156 83.5% 80.1% 87.2% 80.1% 87.2%   0 38  1  8  36 1839 1087        8502        7415
+
+===== MVI_39311 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM    FP   FN num_objects num_matches
+MVI_39311       1505 11.2% 0.184 57.7% 50.7% 66.9% 54.3% 71.6%  11 27  2 22  98 13560 6375       22457       16071
+
+===== MVI_39361 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_39361       2030 32.9% 0.148 72.3% 61.1% 88.6% 61.3% 89.0%   0 53  2 17  10 6790 1331       12108       10777
+
+===== MVI_39371 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_39371       1390 47.3% 0.156 75.5% 69.8% 82.2% 70.1% 82.5%   1 41 10 14  17 2285 1136        6491        5354
+
+===== MVI_39401 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs  MT ML PT  FM   FP   FN num_objects num_matches
+MVI_39401       1385 55.5% 0.131 80.1% 72.1% 90.2% 72.2% 90.3%   0 108  4 17  22 4901 1367       14097       12730
+
+===== MVI_39501 =====
+          num_frames   MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_39501        540 -15.7% 0.184 40.1% 41.5% 38.7% 41.5% 38.7%   0  4  8 16   2 3146 3542        5778        2236
+
+===== MVI_39511 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP  FN num_objects num_matches
+MVI_39511        380 22.8% 0.132 61.7% 61.2% 62.1% 61.2% 62.1%   0  4  0  9   4 931 896        2367        1471
+
+===== MVI_40701 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40701       1130 62.4% 0.127 80.2% 79.4% 80.9% 80.6% 82.2%  10 42  2 19  47 3136 2823       15879       13046
+
+===== MVI_40711 =====
+          num_frames MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40711       1030 5.0% 0.147 62.2% 51.5% 78.5% 51.6% 78.8%   1 44  2  7  11 5775 1663        7829        6165
+
+===== MVI_40712 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40712       2400 75.1% 0.106 87.6% 87.2% 88.1% 87.2% 88.1%   0 56  4  9   6 3053 2823       23627       20804
+
+===== MVI_40714 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP    FN num_objects num_matches
+MVI_40714       1180 67.5% 0.175 80.4% 98.4% 68.0% 98.9% 68.3%   1 32 11 19  92 258 10754       33935       23180
+
+===== MVI_40742 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40742       1655 77.0% 0.128 83.3% 83.1% 83.4% 88.4% 88.7%   5 23  4  6  66 2931 2848       25140       22287
+
+===== MVI_40743 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP  FN num_objects num_matches
+MVI_40743       1630 51.2% 0.116 79.2% 69.0% 92.9% 69.0% 92.9%   0 68  0  4  37 5733 983       13773       12790
+
+===== MVI_40761 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+MVI_40761       2030 56.8% 0.180 58.6% 70.4% 50.2% 89.9% 64.1%  24 49  3 21  191 1518 7528       20981       13429
+
+===== MVI_40762 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+MVI_40762       1825 69.6% 0.154 82.7% 88.1% 77.9% 89.4% 79.0%   2 46  4 14  113 1405 3148       14992       11842
+
+===== MVI_40763 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40763       1745 62.9% 0.152 77.9% 77.2% 78.6% 80.9% 82.4%   2 46  1 10  92 1933 1751        9942        8189
+
+===== MVI_40771 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40771       1720 43.6% 0.140 75.8% 66.4% 88.4% 66.4% 88.4%   0 58  2 12  40 4985 1290       11120        9830
+
+===== MVI_40772 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40772       1200 68.0% 0.117 82.6% 90.5% 76.1% 90.5% 76.1%   0 22  5 34  14 1246 3712       15514       11802
+
+===== MVI_40773 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP  FN num_objects num_matches
+MVI_40773        985 82.7% 0.123 90.3% 94.2% 86.7% 95.0% 87.4%   1 18  2  9  32 367 999        7909        6909
+
+===== MVI_40774 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP  FN num_objects num_matches
+MVI_40774        950 74.0% 0.100 86.9% 87.5% 86.3% 87.5% 86.3%   0 11  3  3   8 710 791        5783        4992
+
+===== MVI_40775 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40775        975 64.4% 0.138 81.8% 79.8% 83.9% 80.7% 84.8%   4 36  2 17  60 2268 1700       11165        9461
+
+===== MVI_40792 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40792       1810 57.1% 0.139 76.9% 82.6% 72.0% 82.8% 72.1%   0 17  6 15  58 1814 3377       12088        8711
+
+===== MVI_40793 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+MVI_40793       1960 68.6% 0.151 82.0% 83.2% 80.8% 85.3% 82.8%   1 59  3 25  140 2675 3229       18788       15558
+
+===== MVI_40851 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40851       1140 46.8% 0.155 74.7% 71.2% 78.6% 71.2% 78.6%   0 28  1 13  22 4860 3266       15270       12004
+
+===== MVI_40852 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40852       1150 64.7% 0.148 78.7% 92.0% 68.7% 93.3% 69.7%   4 28  1 38  48 1039 6306       20791       14481
+
+===== MVI_40853 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40853       1590 58.8% 0.150 80.0% 75.8% 84.8% 76.3% 85.3%   3 44  9 19  62 8941 4953       33701       28745
+
+===== MVI_40854 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40854       1195 55.5% 0.155 73.7% 90.2% 62.3% 90.2% 62.3%   0 38 10 39  17 1362 7584       20099       12515
+
+===== MVI_40855 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40855       1090 45.9% 0.165 68.2% 72.0% 64.7% 75.6% 67.9%  10 37  8 10  85 6612 9660       30093       20423
+
+===== MVI_40863 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP    FN num_objects num_matches
+MVI_40863       1670 37.4% 0.123 68.1% 69.4% 66.9% 69.4% 66.9%   0 14  6 10  76 9632 10840       32703       21863
+
+===== MVI_40864 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP    FN num_objects num_matches
+MVI_40864       1515 49.6% 0.130 62.6% 78.0% 52.3% 87.0% 58.4%  27 33 10 38  172 3886 18593       44689       26069
+
+===== MVI_40891 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+MVI_40891       1545 71.0% 0.153 83.3% 81.5% 85.1% 84.0% 87.8%   9 55  3 10  101 4699 3446       28142       24687
+
+===== MVI_40892 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP    FN num_objects num_matches
+MVI_40892       1790 44.0% 0.146 61.8% 95.9% 45.6% 96.3% 45.7%   2 16 28 91  82 653 19991       36840       16847
+
+===== MVI_40901 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40901       1335 68.2% 0.106 83.1% 88.6% 78.2% 88.6% 78.2%   0 32  1 19  12 1184 2567       11782        9215
+
+===== MVI_40902 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40902       1005 29.1% 0.156 71.6% 59.7% 89.3% 59.7% 89.3%   0 72  8  5  19 5780 1032        9608        8576
+
+===== MVI_40903 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP   FN num_objects num_matches
+MVI_40903       1060 71.2% 0.177 81.7% 94.9% 71.7% 97.1% 73.4%   6 46  4 25  87 492 5946       22364       16412
+
+===== MVI_40904 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40904       1270 27.9% 0.135 66.2% 59.3% 75.0% 61.0% 77.1%   2 18  5 10  46 6127 2850       12449        9597
+
+===== MVI_40905 =====
+          num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM   FP   FN num_objects num_matches
+MVI_40905       1710 56.8% 0.122 76.4% 84.1% 70.0% 84.1% 70.0%   0 29  8 11  30 2624 5950       19852       13902
+
+====== AVERAGE ======
+           num_frames      mota      motp      idf1  ...  num_false_positives  num_misses  num_objects  num_matches
+MVI_39031     1470.00  0.682828  0.182596  0.824554  ...              647.000    2637.000     10354.00     7717.000
+MVI_39051     1062.00  0.760540  0.128573  0.883675  ...              364.000     221.000      2443.00     2222.000
+MVI_39211     1660.00  0.729730  0.198167  0.871032  ...              792.000     378.000      4329.00     3951.000
+MVI_39271     1570.00  0.655846  0.156052  0.835211  ...             1839.000    1087.000      8502.00     7415.000
+MVI_39311     1505.00  0.111814  0.183689  0.576633  ...            13560.000    6375.000     22457.00    16071.000
+MVI_39361     2030.00  0.329286  0.148341  0.723235  ...             6790.000    1331.000     12108.00    10777.000
+MVI_39371     1390.00  0.472809  0.155812  0.755077  ...             2285.000    1136.000      6491.00     5354.000
+MVI_39401     1385.00  0.555366  0.130677  0.801185  ...             4901.000    1367.000     14097.00    12730.000
+MVI_39501      540.00 -0.157494  0.184355  0.400717  ...             3146.000    3542.000      5778.00     2236.000
+MVI_39511      380.00  0.228137  0.132424  0.616901  ...              931.000     896.000      2367.00     1471.000
+MVI_40701     1130.00  0.624095  0.126645  0.801596  ...             3136.000    2823.000     15879.00    13046.000
+MVI_40711     1030.00  0.049815  0.146618  0.621649  ...             5775.000    1663.000      7829.00     6165.000
+MVI_40712     2400.00  0.751301  0.105998  0.876253  ...             3053.000    2823.000     23627.00    20804.000
+MVI_40714     1180.00  0.675468  0.175105  0.804302  ...              258.000   10754.000     33935.00    23180.000
+MVI_40742     1655.00  0.769928  0.128037  0.832635  ...             2931.000    2848.000     25140.00    22287.000
+MVI_40743     1630.00  0.512379  0.116306  0.792049  ...             5733.000     983.000     13773.00    12790.000
+MVI_40761     2030.00  0.567704  0.179595  0.586059  ...             1518.000    7528.000     20981.00    13429.000
+MVI_40762     1825.00  0.696171  0.153510  0.826883  ...             1405.000    3148.000     14992.00    11842.000
+MVI_40763     1745.00  0.629250  0.151631  0.779229  ...             1933.000    1751.000      9942.00     8189.000
+MVI_40771     1720.00  0.435701  0.139738  0.758049  ...             4985.000    1290.000     11120.00     9830.000
+MVI_40772     1200.00  0.680418  0.116597  0.826413  ...             1246.000    3712.000     15514.00    11802.000
+MVI_40773      985.00  0.827159  0.122767  0.902805  ...              367.000     999.000      7909.00     6909.000
+MVI_40774      950.00  0.740446  0.099561  0.869308  ...              710.000     791.000      5783.00     4992.000
+MVI_40775      975.00  0.644245  0.138319  0.817801  ...             2268.000    1700.000     11165.00     9461.000
+MVI_40792     1810.00  0.570566  0.138837  0.769292  ...             1814.000    3377.000     12088.00     8711.000
+MVI_40793     1960.00  0.685704  0.151449  0.819891  ...             2675.000    3229.000     18788.00    15558.000
+MVI_40851     1140.00  0.467845  0.154926  0.747121  ...             4860.000    3266.000     15270.00    12004.000
+MVI_40852     1150.00  0.646530  0.147776  0.786837  ...             1039.000    6306.000     20791.00    14481.000
+MVI_40853     1590.00  0.587638  0.149628  0.800392  ...             8941.000    4953.000     33701.00    28745.000
+MVI_40854     1195.00  0.554903  0.154788  0.736696  ...             1362.000    7584.000     20099.00    12515.000
+MVI_40855     1090.00  0.458944  0.165306  0.681683  ...             6612.000    9660.000     30093.00    20423.000
+MVI_40863     1670.00  0.374002  0.123020  0.681112  ...             9632.000   10840.000     32703.00    21863.000
+MVI_40864     1515.00  0.496386  0.130002  0.626026  ...             3886.000   18593.000     44689.00    26069.000
+MVI_40891     1545.00  0.710255  0.153174  0.832855  ...             4699.000    3446.000     28142.00    24687.000
+MVI_40892     1790.00  0.439577  0.146120  0.617938  ...              653.000   19991.000     36840.00    16847.000
+MVI_40901     1335.00  0.681633  0.105878  0.830891  ...             1184.000    2567.000     11782.00     9215.000
+MVI_40902     1005.00  0.291007  0.156417  0.715740  ...             5780.000    1032.000      9608.00     8576.000
+MVI_40903     1060.00  0.711858  0.176659  0.817029  ...              492.000    5946.000     22364.00    16412.000
+MVI_40904     1270.00  0.278737  0.135014  0.662431  ...             6127.000    2850.000     12449.00     9597.000
+MVI_40905     1710.00  0.568104  0.122042  0.764308  ...             2624.000    5950.000     19852.00    13902.000
+AVG           1407.05  0.537416  0.145304  0.756837  ...             3323.825    4284.325     16894.35    12606.875
+
+[41 rows x 17 columns]
+
+============================================================
+📈 Summary: MOTA=53.74% | IDF1=75.68%
+============================================================
+
+OPTUNA:MOTA=0.537416 IDF1=0.756837
+
+✅ Complete! Results saved to: outputs/uadetrac_test_2025-11-11_0813

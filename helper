@@ -61,6 +61,11 @@ python3 eval/eval_uavdt.py --data_root /isis/home/hasana3/vlmtest/GroundingDINO/
 --weights /isis/home/hasana3/vlmtest/GroundingDINO/weights/swinb_light_visdrone_ft_best.pth \
 --save_video --frame_rate 30 --text_prompt "car. van. bus."  --box_threshold 0.4   --text_threshold 0.8   --track_thresh 0.45   --match_thresh 0.85 
 
+# eval referkitti
+python3 eval/eval_referkitti.py --data_root dataset/referkitti/ --devices 0,1 --jobs 2 --fp16 --frame_rate 10  \
+--box_threshold 0.4   --text_threshold 0.8   --track_thresh 0.45   --match_thresh 0.85 --weights /isis/home/hasana3/vlmtest/GroundingDINO/weights/swinb_light_visdrone_ft_best.pth --save_video --tracker clip --use_clip_in_low  \
+--use_clip_in_unconf --lambda_weight 0.25 --text_sim_thresh 0.2
+
 # eval on kitti
 python3 eval/eval.py --fp16
 

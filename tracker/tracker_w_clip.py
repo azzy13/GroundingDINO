@@ -138,9 +138,9 @@ class CLIPTracker(object):
         self.kalman_filter = KalmanFilter()
 
         # optional: only use CLIP in low/unconfirmed passes
-        self.use_clip_in_high = bool(getattr(args, "use_clip_in_high", True))
-        self.use_clip_in_low = bool(getattr(args, "use_clip_in_low", False))
-        self.use_clip_in_unconf = bool(getattr(args, "use_clip_in_unconf", False))
+        self.use_clip_in_high = bool(getattr(args, "use_clip_in_high", False))
+        self.use_clip_in_low = bool(getattr(args, "use_clip_in_low", True))
+        self.use_clip_in_unconf = bool(getattr(args, "use_clip_in_unconf", True))
 
     # ---------- helpers ----------
     @staticmethod

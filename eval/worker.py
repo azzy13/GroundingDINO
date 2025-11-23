@@ -116,6 +116,145 @@ def parse_kv_list(kv_list):
     return out
 
 
+class ReferringDetectionFilter:
+    """
+    Filters detections based on CLIP text-image similarity for referring object tracking.
+
+    GroundingDINO detects ALL objects matching a text (e.g., "all black cars"),
+    but referring expression tracking needs THE specific object mentioned.
+    This filter re-ranks detections by CLIP similarity and keeps top-K.
+    """
+
+    def __init__(
+        self,
+        clip_model,
+        clip_preprocess,
+        text_embedding: torch.Tensor,
+        mode: str = "topk",
+        topk: int = 3,
+        threshold: float = 0.0,
+        pad: int = 4,
+        device: str = "cuda"
+    ):
+        """
+        Args:
+            clip_model: CLIP model (shared with tracker)
+            clip_preprocess: CLIP preprocessing transform
+            text_embedding: Pre-computed text embedding [D] for the expression
+            mode: "topk" (keep top-K), "threshold" (keep above thresh), or "none" (disabled)
+            topk: Number of detections to keep per frame (for mode="topk")
+            threshold: Min CLIP similarity (for mode="threshold")
+            pad: Padding around crops (pixels)
+            device: Device for CLIP inference
+        """
+        self.clip_model = clip_model
+        self.clip_preprocess = clip_preprocess
+        self.text_embedding = text_embedding.to(device)
+        self.mode = mode.lower()
+        self.topk = int(topk)
+        self.threshold = float(threshold)
+        self.pad = int(pad)
+        self.device = device
+
+        # Stats
+        self.total_dets_in = 0
+        self.total_dets_out = 0
+
+    def filter(self, frame_bgr: np.ndarray, dets_xyxy: np.ndarray) -> np.ndarray:
+        """
+        Filter detections based on CLIP similarity.
+
+        Args:
+            frame_bgr: BGR image [H, W, 3]
+            dets_xyxy: Detections [N, 5] as [x1, y1, x2, y2, score]
+
+        Returns:
+            Filtered detections [K, 5] where K <= N
+        """
+        if self.mode == "none" or dets_xyxy.size == 0:
+            return dets_xyxy
+
+        self.total_dets_in += len(dets_xyxy)
+
+        # Compute CLIP similarities
+        similarities = self._compute_similarities(frame_bgr, dets_xyxy)
+
+        # Filter based on mode
+        if self.mode == "topk":
+            k = min(self.topk, len(dets_xyxy))
+            top_indices = np.argsort(similarities)[-k:][::-1]  # Top-K descending
+            filtered = dets_xyxy[top_indices]
+        elif self.mode == "threshold":
+            keep_mask = similarities >= self.threshold
+            filtered = dets_xyxy[keep_mask]
+        else:
+            raise ValueError(f"Unknown mode: {self.mode}")
+
+        self.total_dets_out += len(filtered)
+        return filtered
+
+    def _compute_similarities(self, frame_bgr: np.ndarray, dets_xyxy: np.ndarray) -> np.ndarray:
+        """Compute CLIP text-image similarity for each detection."""
+        if dets_xyxy.size == 0:
+            return np.array([])
+
+        H, W = frame_bgr.shape[:2]
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+
+        # Extract crops
+        crops = []
+        valid_indices = []
+        for i, (x1, y1, x2, y2, _) in enumerate(dets_xyxy):
+            xi1 = max(0, int(x1) - self.pad)
+            yi1 = max(0, int(y1) - self.pad)
+            xi2 = min(W, int(x2) + self.pad)
+            yi2 = min(H, int(y2) + self.pad)
+
+            if xi2 <= xi1 or yi2 <= yi1 or (xi2 - xi1) < 10 or (yi2 - yi1) < 10:
+                continue  # Skip invalid crops
+
+            crop = rgb[yi1:yi2, xi1:xi2]
+            crops.append(self.clip_preprocess(Image.fromarray(crop)))
+            valid_indices.append(i)
+
+        if not crops:
+            return np.zeros(len(dets_xyxy), dtype=np.float32)
+
+        # Batch encode
+        batch = torch.stack(crops).to(self.device)
+        with torch.no_grad():
+            img_embs = self.clip_model.encode_image(batch)
+            img_embs = F.normalize(img_embs, dim=-1).float()
+
+        # Compute similarities
+        sims = F.cosine_similarity(
+            self.text_embedding.unsqueeze(0).expand(len(img_embs), -1),
+            img_embs,
+            dim=-1
+        ).cpu().numpy()
+
+        # Map back to all detections
+        all_sims = np.zeros(len(dets_xyxy), dtype=np.float32)
+        for i, valid_i in enumerate(valid_indices):
+            all_sims[valid_i] = sims[i]
+
+        return all_sims
+
+    def get_stats(self) -> dict:
+        """Return filtering statistics."""
+        if self.total_dets_in == 0:
+            retention_rate = 0.0
+        else:
+            retention_rate = self.total_dets_out / self.total_dets_in
+
+        return {
+            "total_in": self.total_dets_in,
+            "total_out": self.total_dets_out,
+            "retention_rate": retention_rate,
+            "mode": self.mode
+        }
+
+
 class Worker:
     """
     Reusable GroundingDINO + Tracker runner.
@@ -142,6 +281,11 @@ class Worker:
         # Tracker selection
         tracker_type: str = "bytetrack",  # "bytetrack" or "clip"
         tracker_kwargs: Optional[dict] = None,
+
+        # Referring detection filter
+        referring_mode: str = "none",  # "topk", "threshold", or "none"
+        referring_topk: int = 3,
+        referring_thresh: float = 0.0,
 
         # Misc
         frame_rate: int = DEFAULT_FRAME_RATE,
@@ -197,14 +341,17 @@ class Worker:
         self.tracker = self._build_tracker(tracker_type, tracker_namespace, frame_rate=self.frame_rate)
         self.tracker_type = tracker_type
 
-        # ---- CLIP init (only when using the CLIP-aware tracker) ----
+        # ---- CLIP init (for tracker and/or referring filter) ----
         self.class_names: List[str] = [c.strip() for c in self.text_prompt.split(".") if c.strip()] or ["object"]
         self.text_embedding: Optional[torch.Tensor] = None
         self.clip_model = None
         self.clip_preprocess = None
         self.clip_pad = int(tracker_kwargs.pop("clip_pad", 4))  # override via --tracker_kv clip_pad=6
 
-        if self.tracker_type == "clip":
+        # Load CLIP if needed by tracker OR referring filter
+        need_clip = self.tracker_type == "clip" or referring_mode != "none"
+
+        if need_clip:
             # Load CLIP and precompute text embeddings
             self.clip_model, self.clip_preprocess = clip.load("ViT-B/32", device=self.device)
             self.clip_model.eval()
@@ -212,6 +359,21 @@ class Worker:
                 tokens = clip.tokenize(self.class_names).to(self.device)
                 te = self.clip_model.encode_text(tokens)
                 self.text_embedding = F.normalize(te.float(), dim=-1).contiguous()
+
+        # ---- Referring detection filter ----
+        self.referring_filter: Optional[ReferringDetectionFilter] = None
+        if referring_mode != "none" and self.clip_model is not None:
+            self.referring_filter = ReferringDetectionFilter(
+                clip_model=self.clip_model,
+                clip_preprocess=self.clip_preprocess,
+                text_embedding=self.text_embedding,
+                mode=referring_mode,
+                topk=referring_topk,
+                threshold=referring_thresh,
+                pad=self.clip_pad,
+                device=self.device
+            )
+            print(f"[Worker] Referring filter enabled: mode={referring_mode}, topk={referring_topk}, thresh={referring_thresh}")
 
     @staticmethod
     def _build_tracker(tracker_type: str, tracker_args: argparse.Namespace, *, frame_rate: int):
@@ -393,6 +555,12 @@ class Worker:
                     
                 # NEW signature: (frame_bgr, tensor_image_or_None, H, W)
                 dets = self.predict_detections(img, tensor, orig_h, orig_w)
+
+                # Apply referring detection filter if enabled
+                if self.referring_filter is not None:
+                    dets = self.referring_filter.filter(img, dets)
+
+                # Update tracker
                 if self.tracker_type == "clip":
                     tracks = self.update_tracker_clip(dets, img, orig_h, orig_w)
                 else:
@@ -433,6 +601,12 @@ class Worker:
         if video_writer is not None:
             video_writer.release()
             print(f"[{seq}] Saved video to: {video_out_path}")
+
+        # Print referring filter stats
+        if self.referring_filter is not None:
+            stats = self.referring_filter.get_stats()
+            print(f"[{seq}] Referring filter stats: {stats['total_in']} dets → {stats['total_out']} kept "
+                  f"({stats['retention_rate']*100:.1f}% retention, mode={stats['mode']})")
 
     def process_many(
         self,

@@ -370,6 +370,42 @@ AVG        561.2  0.487833  0.228920  0.676149  ...                782.8      13
 OPTUNA:MOTA=0.487833 IDF1=0.676149
 
 # clip (light)
+python3 eval/eval_new.py --images /isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/image_02 --labels /isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/label_02 --devices 0,1 --jobs 2 --fp16 --tracker clip --use_clip_in_low --use_clip_in_unconf --lambda_weight 0.25 --text_sim_thresh 0.1 --frame_rate 10 --weights /isis/home/hasana3/vlmtest/GroundingDINO/weights/swinb_light_visdrone_ft_best.pth 
+
+📂 Found 5 GT files and 5 result files
+
+===== 0015 =====
+     num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP  FN num_objects num_matches
+0015        376 38.9% 0.251 66.4% 62.7% 70.6% 68.2% 76.7%  33  8  3  9  67 591 385        1651        1233
+
+===== 0016 =====
+     num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM  FP   FN num_objects num_matches
+0016        209 42.8% 0.264 62.7% 78.2% 52.3% 82.6% 55.2%  23  4  4 15  105 333 1282        2863        1558
+
+===== 0018 =====
+     num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP  FN num_objects num_matches
+0018        327 71.0% 0.152 83.7% 83.7% 83.8% 85.9% 86.0%  11  6  0 12  18 191 190        1354        1153
+
+===== 0019 =====
+     num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT   FM   FP   FN num_objects num_matches
+0019       1059 30.2% 0.289 56.7% 56.1% 57.4% 65.3% 66.8%  69 14  2 53  265 2494 2331        7015        4615
+
+===== 0020 =====
+     num_frames  MOTA  MOTP  IDF1   IDP   IDR  Prcn  Rcll IDs MT ML PT  FM  FP   FN num_objects num_matches
+0020        837 48.8% 0.198 67.3% 74.8% 61.3% 79.9% 65.5%  16 19 28 66  79 903 1897        5497        3584
+
+====== AVERAGE ======
+      num_frames      mota      motp      idf1  ...  num_false_positives  num_misses  num_objects  num_matches
+0015       376.0  0.388855  0.250645  0.664196  ...                591.0       385.0       1651.0       1233.0
+0016       209.0  0.427873  0.264290  0.626753  ...                333.0      1282.0       2863.0       1558.0
+0018       327.0  0.710487  0.152141  0.837209  ...                191.0       190.0       1354.0       1153.0
+0019      1059.0  0.302352  0.289460  0.567040  ...               2494.0      2331.0       7015.0       4615.0
+0020       837.0  0.487721  0.197722  0.673400  ...                903.0      1897.0       5497.0       3584.0
+AVG        561.6  0.463458  0.230852  0.673720  ...                902.4      1217.0       3676.0       2428.6
+
+[6 rows x 17 columns]
+OPTUNA:MOTA=0.463458 IDF1=0.673720
+
 
 
 # kitti optuna params, aggro ckpt bytetrack
