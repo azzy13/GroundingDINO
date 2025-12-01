@@ -1,0 +1,77 @@
+# Multi-stage Dockerfile for GroundingDINO ROS2 integration
+# Base: ROS2 Humble + CUDA for GPU acceleration
+
+# Stage 1: Base ROS2 + CUDA environment
+FROM ros:humble-ros-base
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV ROS_DISTRO=humble
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    python3-pip \
+    python3-dev \
+    git \
+    build-essential \
+    cmake \
+    ninja-build \
+    wget \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install ROS2 dependencies
+RUN apt-get update && apt-get install -y \
+    ros-${ROS_DISTRO}-cv-bridge \
+    ros-${ROS_DISTRO}-vision-msgs \
+    python3-colcon-common-extensions \
+    && rm -rf /var/lib/apt/lists/*
+
+# Stage 2: Install GroundingDINO and dependencies
+WORKDIR /app
+
+# Copy GroundingDINO source (excluding weights)
+COPY . /app/GroundingDINO/
+WORKDIR /app/GroundingDINO
+
+# Install Python dependencies
+# First install Cython (required for cython_bbox)
+RUN pip3 install --no-cache-dir Cython
+
+# Install PyTorch with CUDA 11.8 support
+RUN pip3 install --no-cache-dir \
+    torch==2.1.2 torchvision --index-url https://download.pytorch.org/whl/cu118
+
+# Install remaining dependencies from requirements.txt
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Build GroundingDINO
+RUN pip3 install -e .
+
+# Stage 3: Build ROS2 workspace
+WORKDIR /app/ros2_ws
+
+# Copy ROS2 package
+COPY ros2_package/groundingdino_ros /app/ros2_ws/src/groundingdino_ros
+
+# Source ROS2 and build
+RUN /bin/bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
+    colcon build --packages-select groundingdino_ros --symlink-install"
+
+# Setup entrypoint
+COPY docker/ros2_entrypoint.sh /app/ros2_entrypoint.sh
+RUN chmod +x /app/ros2_entrypoint.sh
+
+# Environment setup
+ENV ROS2_WS=/app/ros2_ws
+ENV GROUNDINGDINO_PATH=/app/GroundingDINO
+ENV PYTHONPATH=${GROUNDINGDINO_PATH}
+
+# Expose ROS2 DDS ports
+EXPOSE 7400-7500/udp
+
+ENTRYPOINT ["/app/ros2_entrypoint.sh"]
+CMD ["ros2", "launch", "groundingdino_ros", "groundingdino.launch.py"]
