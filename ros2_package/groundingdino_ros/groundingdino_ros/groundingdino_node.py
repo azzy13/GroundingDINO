@@ -23,7 +23,12 @@ sys.path.insert(0, str(GROUNDINGDINO_ROOT))
 
 from eval.worker import Worker
 from groundingdino_ros.msg import GroundingDINOTrack, GroundingDINOTrackArray
-from groundingdino_ros.mission_parser import get_text_prompt_from_mission
+
+# Import mission parser (same directory when installed)
+try:
+    from groundingdino_ros.mission_parser import get_text_prompt_from_mission
+except ModuleNotFoundError:
+    from mission_parser import get_text_prompt_from_mission
 
 
 class GroundingDINONode(Node):
@@ -204,7 +209,7 @@ class GroundingDINONode(Node):
             tensor = self.worker.preprocess_frame(frame)
 
             # Run detection
-            dets_xyxy = self.worker._detect(
+            dets_xyxy = self.worker.predict_detections(
                 frame_bgr=frame,
                 tensor_image=tensor,
                 orig_h=orig_h,

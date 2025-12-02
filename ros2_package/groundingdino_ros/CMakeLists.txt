@@ -22,16 +22,17 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   DEPENDENCIES std_msgs
 )
 
-# Install Python modules (only if not already installed)
-if(NOT TARGET ament_cmake_python_symlink_${PROJECT_NAME})
-  ament_python_install_package(${PROJECT_NAME})
-endif()
-
 # Install Python executables
 install(PROGRAMS
-  groundingdino_ros/groundingdino_node.py
+  scripts/groundingdino_node
   DESTINATION lib/${PROJECT_NAME}
-  RENAME groundingdino_node
+)
+
+# Install Python modules directly (manual installation to avoid conflicts)
+install(FILES
+  ${PROJECT_NAME}/groundingdino_node.py
+  ${PROJECT_NAME}/mission_parser.py
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 # Install launch files

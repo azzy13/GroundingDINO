@@ -75,6 +75,12 @@ python3 eval/eval_mot17.py     --data_root dataset/MOT17     --split train     -
 # eval 2 GPUs
 python3 eval/eval_new.py --images /isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/image_02 --labels /isis/home/hasana3/vlmtest/GroundingDINO/dataset/kitti/validation/label_02 --devices 0,1 --jobs 2 --fp16 --detector florence2
 
+# docker
+#source ros worksapce
+source /opt/ros/humble/setup.bash
+#source packages
+source install/setup.bash
+
 
 # fp16 magic
 ✅ Frame 8733 - Inference: 0.066s
