@@ -369,6 +369,24 @@ def main():
         "--text_threshold", type=float, default=0.80, help="GroundingDINO text threshold"
     )
     ap.add_argument(
+        "--use_scale_aware_thresh",
+        action="store_true",
+        default=True,
+        help="Enable scale-aware thresholding (lower threshold for small/distant objects)"
+    )
+    ap.add_argument(
+        "--no_scale_aware_thresh",
+        dest="use_scale_aware_thresh",
+        action="store_false",
+        help="Disable scale-aware thresholding"
+    )
+    ap.add_argument(
+        "--small_box_area_thresh",
+        type=int,
+        default=5000,
+        help="Area threshold (pixels) for small boxes in scale-aware filtering (default: 5000)"
+    )
+    ap.add_argument(
         "--track_thresh", type=float, default=0.45, help="Tracker high-conf threshold"
     )
     ap.add_argument(
@@ -439,6 +457,27 @@ def main():
         help="Use CLIP fusion in unconfirmed stage",
     )
 
+    # Text-grounding at matching args
+    ap.add_argument(
+        "--use_text_gate_matching",
+        type=lambda x: x.lower() == 'true',
+        default=True,
+        help="Enable text-grounding cost at matching time (default: True)",
+    )
+    ap.add_argument(
+        "--text_gate_mode",
+        type=str,
+        choices=["penalty", "hard"],
+        default="penalty",
+        help="Text-grounding mode: 'penalty' (soft gating) or 'hard' (block bad matches)",
+    )
+    ap.add_argument(
+        "--text_gate_weight",
+        type=float,
+        default=0.5,
+        help="Weight for text-grounding cost in penalty mode (default: 0.5)",
+    )
+
     # Referring detection filter args
     ap.add_argument(
         "--referring_mode",
@@ -458,6 +497,36 @@ def main():
         type=float,
         default=0.0,
         help="Minimum CLIP similarity when referring_mode='threshold' (default: 0.0)",
+    )
+    # Note: Both filters are enabled by default (True), so no flag means both are ON
+    # Use --no_color_filter or --no_spatial_filter to disable
+    color_group = ap.add_mutually_exclusive_group()
+    color_group.add_argument(
+        "--use_color_filter", "--use_colour_filter",
+        dest="use_color_filter",
+        action="store_true",
+        default=None,
+        help="Enable patch-based color filtering for color keywords (black/white/red/etc.)",
+    )
+    color_group.add_argument(
+        "--no_color_filter", "--no_colour_filter",
+        dest="use_color_filter",
+        action="store_false",
+        help="Disable patch-based color filtering",
+    )
+
+    spatial_group = ap.add_mutually_exclusive_group()
+    spatial_group.add_argument(
+        "--use_spatial_filter",
+        action="store_true",
+        default=None,
+        help="Enable spatial filtering for spatial keywords (left/right/top/bottom/center)",
+    )
+    spatial_group.add_argument(
+        "--no_spatial_filter",
+        dest="use_spatial_filter",
+        action="store_false",
+        help="Disable spatial filtering",
     )
 
     # Pass-through tracker_kv if you want (optional)
@@ -483,6 +552,16 @@ def main():
     )
 
     args = ap.parse_args()
+
+    # Set defaults for filter flags (True if not specified)
+    if args.use_color_filter is None:
+        args.use_color_filter = True
+    if args.use_spatial_filter is None:
+        args.use_spatial_filter = True
+    if not hasattr(args, 'use_scale_aware_thresh'):
+        args.use_scale_aware_thresh = True
+    if not hasattr(args, 'small_box_area_thresh'):
+        args.small_box_area_thresh = 5000
 
     dataset_name = "referkitti"
     defaults = DATASET_DEFAULTS[dataset_name]
@@ -558,6 +637,9 @@ def main():
             "use_clip_in_high": args.use_clip_in_high,
             "use_clip_in_low": args.use_clip_in_low,
             "use_clip_in_unconf": args.use_clip_in_unconf,
+            "use_text_gate_matching": args.use_text_gate_matching,
+            "text_gate_mode": args.text_gate_mode,
+            "text_gate_weight": args.text_gate_weight,
         }
     )
     tracker_kwargs.update(parse_kv_list(args.tracker_kv))
@@ -629,6 +711,10 @@ def main():
                 referring_mode=args.referring_mode,
                 referring_topk=args.referring_topk,
                 referring_thresh=args.referring_thresh,
+                use_spatial_filter=args.use_spatial_filter,
+                use_color_filter=args.use_color_filter,
+                use_scale_aware_thresh=args.use_scale_aware_thresh,
+                small_box_area_thresh=args.small_box_area_thresh,
             )
 
             # 3) Run tracking on this sequence; write expression-specific result

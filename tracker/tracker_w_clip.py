@@ -142,6 +142,11 @@ class CLIPTracker(object):
         self.use_clip_in_low = bool(getattr(args, "use_clip_in_low", True))
         self.use_clip_in_unconf = bool(getattr(args, "use_clip_in_unconf", True))
 
+        # text-grounding at matching time (strict expression enforcement)
+        self.use_text_gate_matching = bool(getattr(args, "use_text_gate_matching", True))
+        self.text_gate_mode = str(getattr(args, "text_gate_mode", "penalty"))  # "penalty" or "hard"
+        self.text_gate_weight = float(getattr(args, "text_gate_weight", 0.5))  # weight for penalty mode
+
     # ---------- helpers ----------
     @staticmethod
     def _embedding_cost(tracks, detections):
@@ -175,6 +180,59 @@ class CLIPTracker(object):
         return C.astype(np.float32), M
 
     @staticmethod
+    def _text_grounding_cost(detections, text_embedding, text_sim_thresh=0.25):
+        """
+        Compute text-to-image similarity cost for each detection.
+
+        Args:
+            detections: List of STrack objects with .embedding attribute
+            text_embedding: torch.Tensor [C, D] (C classes, D=512 for CLIP)
+            text_sim_thresh: Minimum similarity to consider a match
+
+        Returns:
+            cost: np.ndarray [N] where N=len(detections)
+                  0.0 if text_sim >= thresh (good match to expression)
+                  1.0 if text_sim < thresh (violates expression)
+            valid_mask: np.ndarray [N] bool, True if detection has embedding
+        """
+        nD = len(detections)
+        if nD == 0:
+            return np.zeros(nD, dtype=np.float32), np.zeros(nD, dtype=bool)
+
+        cost = np.zeros(nD, dtype=np.float32)
+        valid = np.zeros(nD, dtype=bool)
+
+        # Normalize text embedding (should already be normalized, but ensure)
+        tnorm = text_embedding / (text_embedding.norm(dim=-1, keepdim=True) + 1e-6)
+
+        for j, det in enumerate(detections):
+            de = getattr(det, "embedding", None)
+            if de is None:
+                # No embedding → can't compute text similarity → assume valid
+                cost[j] = 0.0
+                valid[j] = False
+                continue
+
+            # Normalize detection embedding
+            v = de.detach().float()
+            v = v / (v.norm() + 1e-6)
+
+            # Compute max text-to-image similarity across all class text embeddings
+            # text_embedding: [C, D], v: [D] → sim: [C]
+            sim = torch.max(torch.matmul(tnorm, v.to(tnorm.device)))
+            sim_val = sim.item()
+
+            # Convert to cost: high sim → low cost
+            if sim_val >= text_sim_thresh:
+                cost[j] = 0.0  # Matches expression well
+            else:
+                cost[j] = 1.0  # Violates expression
+
+            valid[j] = True
+
+        return cost.astype(np.float32), valid
+
+    @staticmethod
     def _fuse_iou_and_clip(iou_for_blend, emb_cost, emb_valid_mask, *,
                            lambda_weight=0.23, adaptive=True, iou_for_weight=None):
         """
@@ -197,6 +255,75 @@ class CLIPTracker(object):
         idx = emb_valid_mask
         if idx.any():
             fused[idx] = (1.0 - w[idx]) * iou_for_blend[idx] + w[idx] * emb_cost[idx]
+        return fused
+
+    @staticmethod
+    def _fuse_iou_clip_and_text(
+        iou_dist, emb_cost, emb_valid, text_cost_per_det, text_valid_per_det,
+        *, lambda_visual=0.23, lambda_text=0.5, text_mode="penalty", adaptive=True, iou_for_weight=None
+    ):
+        """
+        Three-way fusion: IoU + Visual CLIP + Text-grounding.
+
+        Args:
+            iou_dist: [M, N] IoU-based distance
+            emb_cost: [M, N] Visual CLIP cost (track_emb ↔ det_emb)
+            emb_valid: [M, N] bool mask for valid visual embeddings
+            text_cost_per_det: [N] Text-grounding cost (0.0=good, 1.0=bad)
+            text_valid_per_det: [N] bool mask for valid text costs
+            lambda_visual: Weight for visual CLIP cost
+            lambda_text: Weight for text-grounding cost
+            text_mode: "penalty" (soft gating) or "hard" (block bad matches)
+            adaptive: Use adaptive visual weighting based on IoU
+            iou_for_weight: [M, N] raw IoU for adaptive weighting
+
+        Returns:
+            fused_cost: [M, N] Combined distance matrix
+        """
+        nT, nD = iou_dist.shape
+        if nT == 0 or nD == 0:
+            return iou_dist.copy()
+
+        # Start with IoU distance
+        fused = iou_dist.copy().astype(np.float32)
+        if iou_for_weight is None:
+            iou_for_weight = iou_dist
+
+        # Broadcast text cost to [M, N]
+        text_cost_matrix = np.tile(text_cost_per_det.reshape(1, -1), (nT, 1))  # [M, N]
+
+        # Apply text-grounding penalty/gate
+        if text_mode == "hard":
+            # Hard gating: Block matches to detections that violate expression
+            for j in range(nD):
+                if text_valid_per_det[j] and text_cost_per_det[j] > 0.5:  # Bad match
+                    fused[:, j] = 999.0  # Block all tracks from matching this detection
+        else:
+            # Soft penalty: Add text cost weighted by lambda_text
+            text_mask = text_valid_per_det.astype(bool)  # [N]
+            if text_mask.any():
+                # Add text penalty to all valid text detections
+                fused[:, text_mask] = fused[:, text_mask] + lambda_text * text_cost_matrix[:, text_mask]
+
+        # Fuse visual CLIP cost (adaptive weighting)
+        if adaptive:
+            w_visual = lambda_visual * iou_for_weight  # [M, N]
+        else:
+            w_visual = np.full_like(fused, fill_value=lambda_visual, dtype=np.float32)
+
+        idx = emb_valid  # [M, N] bool mask
+        if idx.any():
+            # fused = fused + w_visual * emb_cost (additive since text already added)
+            # Actually, let's do proper normalization:
+            # fused = (1 - w_visual) * iou + w_visual * emb + lambda_text * text
+            # But text already added, so just add visual component
+            fused[idx] = (1.0 - w_visual[idx]) * iou_dist[idx] + w_visual[idx] * emb_cost[idx]
+            # Re-add text penalty on top
+            if text_mode == "penalty":
+                for j in range(nD):
+                    if text_valid_per_det[j]:
+                        fused[:, j] = fused[:, j] + lambda_text * text_cost_per_det[j]
+
         return fused
 
     # ---------- main update ----------
@@ -293,16 +420,48 @@ class CLIPTracker(object):
         if not self.args.mot20 and iou1.size and len(detections_hi) > 0:
             iou1 = matching.fuse_score(iou1, detections_hi)
 
+        # Compute text-grounding cost for detections (expression enforcement)
+        text_cost_hi, text_valid_hi = np.zeros(0), np.zeros(0, dtype=bool)
+        if self.use_text_gate_matching and len(detections_hi) > 0:
+            text_sim_thresh = float(getattr(self.args, "text_sim_thresh", 0.25))
+            text_cost_hi, text_valid_hi = self._text_grounding_cost(
+                detections_hi, text_embedding, text_sim_thresh
+            )
+
         if self.use_clip_in_high:
             # optional re-blend (rarely needed on KITTI)
             iou1_raw = matching.iou_distance(strack_pool, detections_hi).astype(np.float32)
             emb1, mask1 = self._embedding_cost(strack_pool, detections_hi)
-            dists1 = self._fuse_iou_and_clip(
-                iou1, emb1, mask1,
-                lambda_weight=self.args.lambda_weight, adaptive=True, iou_for_weight=iou1_raw
-            )
+
+            # Use three-way fusion if text-grounding is enabled
+            if self.use_text_gate_matching and len(text_cost_hi) > 0:
+                dists1 = self._fuse_iou_clip_and_text(
+                    iou1, emb1, mask1, text_cost_hi, text_valid_hi,
+                    lambda_visual=self.args.lambda_weight,
+                    lambda_text=self.text_gate_weight,
+                    text_mode=self.text_gate_mode,
+                    adaptive=True,
+                    iou_for_weight=iou1_raw
+                )
+            else:
+                dists1 = self._fuse_iou_and_clip(
+                    iou1, emb1, mask1,
+                    lambda_weight=self.args.lambda_weight, adaptive=True, iou_for_weight=iou1_raw
+                )
         else:
-            dists1 = iou1
+            # No visual CLIP, but still apply text-grounding if enabled
+            if self.use_text_gate_matching and len(text_cost_hi) > 0:
+                dists1 = iou1.copy()
+                if self.text_gate_mode == "hard":
+                    for j in range(len(detections_hi)):
+                        if text_valid_hi[j] and text_cost_hi[j] > 0.5:
+                            dists1[:, j] = 999.0
+                else:
+                    for j in range(len(detections_hi)):
+                        if text_valid_hi[j]:
+                            dists1[:, j] += self.text_gate_weight * text_cost_hi[j]
+            else:
+                dists1 = iou1
 
         matches1, u_track, u_det_hi = matching.linear_assignment(dists1, thresh=self.args.match_thresh)
 
@@ -320,14 +479,46 @@ class CLIPTracker(object):
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
         iou2 = matching.iou_distance(r_tracked_stracks, detections_lo).astype(np.float32)
 
+        # Compute text-grounding cost for low-confidence detections
+        text_cost_lo, text_valid_lo = np.zeros(0), np.zeros(0, dtype=bool)
+        if self.use_text_gate_matching and len(detections_lo) > 0:
+            text_sim_thresh = float(getattr(self.args, "text_sim_thresh", 0.25))
+            text_cost_lo, text_valid_lo = self._text_grounding_cost(
+                detections_lo, text_embedding, text_sim_thresh
+            )
+
         if self.use_clip_in_low:
             emb2, mask2 = self._embedding_cost(r_tracked_stracks, detections_lo)
-            dists2 = self._fuse_iou_and_clip(
-                iou2, emb2, mask2,
-                lambda_weight=self.args.lambda_weight, adaptive=True, iou_for_weight=iou2
-            )
+
+            # Use three-way fusion if text-grounding is enabled
+            if self.use_text_gate_matching and len(text_cost_lo) > 0:
+                dists2 = self._fuse_iou_clip_and_text(
+                    iou2, emb2, mask2, text_cost_lo, text_valid_lo,
+                    lambda_visual=self.args.lambda_weight,
+                    lambda_text=self.text_gate_weight,
+                    text_mode=self.text_gate_mode,
+                    adaptive=True,
+                    iou_for_weight=iou2
+                )
+            else:
+                dists2 = self._fuse_iou_and_clip(
+                    iou2, emb2, mask2,
+                    lambda_weight=self.args.lambda_weight, adaptive=True, iou_for_weight=iou2
+                )
         else:
-            dists2 = iou2
+            # No visual CLIP, but still apply text-grounding if enabled
+            if self.use_text_gate_matching and len(text_cost_lo) > 0:
+                dists2 = iou2.copy()
+                if self.text_gate_mode == "hard":
+                    for j in range(len(detections_lo)):
+                        if text_valid_lo[j] and text_cost_lo[j] > 0.5:
+                            dists2[:, j] = 999.0
+                else:
+                    for j in range(len(detections_lo)):
+                        if text_valid_lo[j]:
+                            dists2[:, j] += self.text_gate_weight * text_cost_lo[j]
+            else:
+                dists2 = iou2
 
         matches2, u_track2, _ = matching.linear_assignment(dists2, thresh=0.5)
 
@@ -354,15 +545,47 @@ class CLIPTracker(object):
         if not self.args.mot20 and iou3.size and len(detections_left) > 0:
             iou3 = matching.fuse_score(iou3, detections_left)
 
+        # Compute text-grounding cost for remaining high-confidence detections
+        text_cost_left, text_valid_left = np.zeros(0), np.zeros(0, dtype=bool)
+        if self.use_text_gate_matching and len(detections_left) > 0:
+            text_sim_thresh = float(getattr(self.args, "text_sim_thresh", 0.25))
+            text_cost_left, text_valid_left = self._text_grounding_cost(
+                detections_left, text_embedding, text_sim_thresh
+            )
+
         if self.use_clip_in_unconf:
             iou3_raw = matching.iou_distance(unconfirmed, detections_left).astype(np.float32)
             emb3, mask3 = self._embedding_cost(unconfirmed, detections_left)
-            dists3 = self._fuse_iou_and_clip(
-                iou3, emb3, mask3,
-                lambda_weight=self.args.lambda_weight, adaptive=True, iou_for_weight=iou3_raw
-            )
+
+            # Use three-way fusion if text-grounding is enabled
+            if self.use_text_gate_matching and len(text_cost_left) > 0:
+                dists3 = self._fuse_iou_clip_and_text(
+                    iou3, emb3, mask3, text_cost_left, text_valid_left,
+                    lambda_visual=self.args.lambda_weight,
+                    lambda_text=self.text_gate_weight,
+                    text_mode=self.text_gate_mode,
+                    adaptive=True,
+                    iou_for_weight=iou3_raw
+                )
+            else:
+                dists3 = self._fuse_iou_and_clip(
+                    iou3, emb3, mask3,
+                    lambda_weight=self.args.lambda_weight, adaptive=True, iou_for_weight=iou3_raw
+                )
         else:
-            dists3 = iou3
+            # No visual CLIP, but still apply text-grounding if enabled
+            if self.use_text_gate_matching and len(text_cost_left) > 0:
+                dists3 = iou3.copy()
+                if self.text_gate_mode == "hard":
+                    for j in range(len(detections_left)):
+                        if text_valid_left[j] and text_cost_left[j] > 0.5:
+                            dists3[:, j] = 999.0
+                else:
+                    for j in range(len(detections_left)):
+                        if text_valid_left[j]:
+                            dists3[:, j] += self.text_gate_weight * text_cost_left[j]
+            else:
+                dists3 = iou3
 
         matches3, u_unconfirmed, u_det_left = matching.linear_assignment(dists3, thresh=0.7)
 
