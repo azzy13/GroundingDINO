@@ -163,4 +163,8 @@ OPTUNA_RMOT:MOTA=0.166095 IDF1=0.331475
 
 ✅ Complete! Results saved to: outputs/referkitti_rmot_2025-12-12_0231
 
-#
+[I 2025-12-16 17:38:45,490] Trial 532 finished with value: 0.786026 and parameters: {'box_threshold': 0.4549706853844193, 'text_threshold': 0.36310447842781074, 'track_thresh': 0.15937989639421643, 'match_thresh': 0.8798305144582814, 'track_buffer': 110, 'lambda_weight': 0.5681541002030135, 'use_clip_in_high': False, 'use_clip_in_low': False, 'text_gate_mode': 'penalty', 'text_gate_weight': 0.735809202112974, 'referring_thresh': 0.26267060145602306, 'small_box_area_thresh': 4000, 'use_color_filter': True, 'use_spatial_filter': True}. Best is trial 518 with value: 0.7811466.
+[Trial] Combined=0.1868 (MOTA=0.0015, IDF1=0.4649)
+   Params: box=0.421, text=0.343, track=0.159, match=0.843, ref_thresh=0.244, clip_high=False, clip_low=False
+
+   

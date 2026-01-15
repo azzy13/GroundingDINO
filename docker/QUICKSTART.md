@@ -33,6 +33,7 @@ docker run \
   --rm \
   --gpus all \
   --network host \
+  --ipc=host \
   -v ${PWD}/weights:/weights:ro \
   -v ${PWD}/outputs:/outputs:rw \
   -e ROS_DOMAIN_ID=0 \
@@ -45,6 +46,7 @@ docker run \
 docker run -d \
   --name test_publisher \
   --network host \
+  --ipc=host \
   -e ROS_DOMAIN_ID=0 \
   -v /isis/home/hasana3/vlmtest/GroundingDINO:/app/groundingdino:ro \
   groundingdino_ros:latest \
@@ -76,9 +78,6 @@ When you're done testing:
 ```bash
 # Stop containers
 docker stop groundingdino_node test_publisher
-
-# Remove test images/containers (optional)
-docker system prune
 ```
 
 ## Directory Structure After Setup

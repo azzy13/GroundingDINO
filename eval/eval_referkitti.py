@@ -610,14 +610,14 @@ def main():
         if os.path.isdir(os.path.join(images_root, d))
     )
 
-    # DEBUG: restrict to a smaller set of sequences for faster testing
-    seq_whitelist = [s for s in all_seqs if s == "0001"]
+    # Final eval: ALL sequences, first 4 expressions each
+    seq_whitelist = all_seqs
     build_referkitti_seq_gt(args.data_root, args.kitti_split, gt_seq_dir, seq_whitelist=seq_whitelist)
 
     sequences = create_kitti_image_symlinks(args.data_root, args.kitti_split, temp_images)
-    
+
     sequences = [s for s in sequences if s in seq_whitelist]
-    print(f"DEBUG: Restricting to sequences: {seq_whitelist}")
+    print(f"Running on {len(sequences)} sequences, 4 expressions each (FINAL EVAL)")
 
     expr_root = os.path.join(args.data_root, "expression")
 
@@ -655,10 +655,10 @@ def main():
             print(f"   ⚠ No valid expressions for {seq}, skipping.")
             continue
 
-        # DEV: only use the first few expressions for quick debugging
-        max_expr = 2   # or 10, or whatever you like
+        # Using first 2 expressions per sequence (TEST RUN)
+        max_expr = 4
         expr_list = expr_list[:max_expr]
-        print(f"   DEBUG: Restricting to first {len(expr_list)} expressions for {seq}")
+        print(f"   Using first {len(expr_list)} expressions for {seq}")
 
         # Load sequence-level GT once for this seq
         seq_gt_path = os.path.join(gt_seq_dir, f"{seq}.txt")

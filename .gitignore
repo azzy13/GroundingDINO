@@ -155,3 +155,4 @@ output/
 docs/
 .claude/
 notebooks_debug/
+dump/
