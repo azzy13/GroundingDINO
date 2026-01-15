@@ -12,11 +12,8 @@ python3 demo/inference_on_video.py \
   --video ./videos/car2.mp4 \
   --output ./outputs/annotated_car2.mp4 --fp16
 
-# bytetrack added
-python3 demo/inference.py --video ./videos/car2.mp4 --output ./outputs/annotated_car2.mp4 --fp16
-
-# with clip
-python3 demo/inference_w_clip.py --video ./videos/color.mp4 --output ./outputs/color.mp4 --fp16
+# bytetrack and clip added
+python3 demo/inference_w_finetune_dino.py     --video ./videos/carla1.mp4     --output ./outputs/annotated_carla1_worker.mp4     --fp16     --match-thresh 0.8
 
 # eval on coco 2017
 python3 demo/test_ap_on_coco.py -c groundingdino/config/GroundingDINO_SwinB_cfg.py \
