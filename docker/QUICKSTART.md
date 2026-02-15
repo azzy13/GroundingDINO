@@ -51,7 +51,7 @@ docker run -d \
   -v /isis/home/hasana3/vlmtest/GroundingDINO:/app/groundingdino:ro \
   groundingdino_ros:latest \
   bash -c "cd /app/groundingdino/ros2_package && \
-           python3 test_publisher.py --video /app/groundingdino/videos/carla1.mp4 --fps 10"
+           python3 test_publisher.py --video /app/groundingdino/videos/carla1.mp4 --fps 30"
 ```
 
 ### 5. Verify It's Working

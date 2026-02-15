@@ -18,11 +18,12 @@ from cv_bridge import CvBridge
 class VideoPublisher(Node):
     """Publishes video frames as ROS2 images for testing."""
 
-    def __init__(self, video_path, fps=10):
+    def __init__(self, video_path, fps=10, loop=True):
         super().__init__('video_publisher')
 
         self.bridge = CvBridge()
         self.cap = cv2.VideoCapture(video_path)
+        self.loop = loop
 
         if not self.cap.isOpened():
             self.get_logger().error(f"Cannot open video: {video_path}")
@@ -54,9 +55,14 @@ class VideoPublisher(Node):
         ret, frame = self.cap.read()
 
         if not ret:
-            self.get_logger().info("Video finished, looping...")
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            ret, frame = self.cap.read()
+            if self.loop:
+                self.get_logger().info("Video finished, looping...")
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                ret, frame = self.cap.read()
+            else:
+                self.get_logger().info("Video finished, stopping.")
+                self.timer.cancel()
+                return
 
         if ret:
             # Convert to ROS Image message
@@ -80,12 +86,13 @@ def main(args=None):
     parser = argparse.ArgumentParser(description='Publish video as ROS2 images')
     parser.add_argument('--video', type=str, help='Path to video file', default="../../videos/carla1.mp4")
     parser.add_argument('--fps', type=int, default=30, help='Publishing rate (FPS)')
+    parser.add_argument('--no-loop', action='store_true', help='Stop when video ends instead of looping')
     parsed_args = parser.parse_args()
 
     rclpy.init(args=args)
 
     try:
-        node = VideoPublisher(parsed_args.video, parsed_args.fps)
+        node = VideoPublisher(parsed_args.video, parsed_args.fps, loop=not parsed_args.no_loop)
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass

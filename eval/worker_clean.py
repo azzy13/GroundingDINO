@@ -16,6 +16,7 @@ import sys
 import argparse
 import importlib
 import subprocess
+from collections import deque
 from typing import Dict, Tuple, Optional, Iterable, List
 
 import cv2
@@ -210,9 +211,7 @@ class ReferringDetectionFilter:
         clip_model,
         clip_preprocess,
         text_embedding: torch.Tensor,
-        mode: str = "topk",
-        topk: int = 3,
-        threshold: float = 0.0,
+        threshold: float = 0.25,
         pad: int = 4,
         device: str = "cuda",
         text_prompt: str = "",
@@ -228,8 +227,6 @@ class ReferringDetectionFilter:
         if text_embedding.dim() == 2 and text_embedding.size(0) == 1:
             text_embedding = text_embedding.squeeze(0)
         self.text_embedding = text_embedding
-        self.mode = mode.lower()
-        self.topk = int(topk)
         self.threshold = float(threshold)
         self.pad = int(pad)
         self.device = device
@@ -304,69 +301,32 @@ class ReferringDetectionFilter:
         return 1.0
 
     def filter(self, frame_bgr: np.ndarray, dets_xyxy: np.ndarray, verbose: bool = False) -> np.ndarray:
-        """Filter detections based on GroundingDINO scores, spatial position, and color."""
-        if self.mode == "none" or dets_xyxy.size == 0:
+        """Filter detections by GroundingDINO score and spatial position.
+
+        Color filtering is handled post-track by TrackColorGate.
+        """
+        if dets_xyxy.size == 0:
             return dets_xyxy
 
         self.total_dets_in += len(dets_xyxy)
         H, W = frame_bgr.shape[:2]
 
-        # Use GroundingDINO scores (already in dets_xyxy[:, 4])
         dino_scores = dets_xyxy[:, 4].copy()
 
-        # Compute spatial scores if enabled
         if self.use_spatial_filter and self.spatial_region:
             spatial_scores = np.array([self._spatial_score(det, W, H) for det in dets_xyxy])
             combined_scores = dino_scores * spatial_scores
         else:
             spatial_scores = None
-            combined_scores = dino_scores
+            combined_scores = dino_scores.copy()
 
-        # Compute patch-based color scores if enabled and color keyword detected
-        # Patch-based method returns binary scores: 1.0 for match, 0.0 for mismatch
-        if self.use_color_filter and self.color_attribute:
-            color_scores = self._compute_color_similarities(frame_bgr, dets_xyxy)
-            # Binary filter: score = 1.0 → keep, score = 0.0 → penalize heavily
-            for i in range(len(dets_xyxy)):
-                if color_scores[i] < 0.5:  # No color match (score = 0.0)
-                    combined_scores[i] *= 0.1  # Heavily penalize mismatches
-        else:
-            color_scores = None
+        filtered = dets_xyxy[combined_scores >= self.threshold]
 
-        if self.mode == "topk":
-            k = min(self.topk, len(dets_xyxy))
-            top_indices = np.argsort(combined_scores)[-k:][::-1]
-            filtered = dets_xyxy[top_indices]
-        elif self.mode == "threshold":
-            filtered = dets_xyxy[combined_scores >= self.threshold]
-        else:
-            raise ValueError(f"Unknown mode: {self.mode}")
-
-        # Verbose debug output (multi-line format)
         if verbose and len(dets_xyxy) > 0:
-            print(f"\n  [GroundingDINO scores] min={dino_scores.min():.3f}, max={dino_scores.max():.3f}, mean={dino_scores.mean():.3f}")
+            print(f"\n  [DINO scores] min={dino_scores.min():.3f}, max={dino_scores.max():.3f}, mean={dino_scores.mean():.3f}")
             if spatial_scores is not None:
-                print(f"  [Spatial Filter] region={self.spatial_region}, scores: min={spatial_scores.min():.3f}, max={spatial_scores.max():.3f}")
-            if color_scores is not None:
-                print(f"  [Color Filter] color={self.color_attribute}, scores: min={color_scores.min():.3f}, max={color_scores.max():.3f}")
-            print(f"  [Combined scores] min={combined_scores.min():.3f}, max={combined_scores.max():.3f}")
-            print(f"  [Filter result] kept {len(filtered)}/{len(dets_xyxy)} (thresh={self.threshold:.2f})")
-
-            # Show why objects were filtered out
-            if len(filtered) < len(dets_xyxy):
-                rejected_idx = [i for i in range(len(dets_xyxy)) if combined_scores[i] < self.threshold]
-                if rejected_idx:
-                    print(f"  [Rejected {len(rejected_idx)} objects]:")
-                    for i in rejected_idx[:3]:  # Show first 3 rejected
-                        parts = [f"dino={dino_scores[i]:.3f}"]
-                        if spatial_scores is not None:
-                            parts.append(f"spat={spatial_scores[i]:.3f}")
-                        if color_scores is not None:
-                            parts.append(f"color={color_scores[i]:.3f}")
-                        parts.append(f"comb={combined_scores[i]:.3f}")
-                        print(f"    obj#{i}: {', '.join(parts)}")
-                    if len(rejected_idx) > 3:
-                        print(f"    ... and {len(rejected_idx)-3} more", end="")
+                print(f"  [Spatial] region={self.spatial_region}, min={spatial_scores.min():.3f}, max={spatial_scores.max():.3f}")
+            print(f"  [Pre-filter] kept {len(filtered)}/{len(dets_xyxy)} (thresh={self.threshold:.2f})")
 
         self.total_dets_out += len(filtered)
         return filtered
@@ -387,10 +347,9 @@ class ReferringDetectionFilter:
                                  'yellow', 'green', 'blue', or 'unknown'
 
         Note:
-            - 'dark' (V < 90): Includes black and dark colored vehicles
-            - 'light' (V > 115): Includes white, silver, beige, light gray vehicles
-            - 'gray' (90 ≤ V ≤ 115, S < 25): Mid-gray tones
-            - Chromatic colors (red/blue/etc) for saturated mid-brightness colors
+            - Saturated pixels (S >= 35) classified by hue first (red/blue/etc)
+            - Achromatic pixels (S < 50) classified by brightness:
+              'dark' (V < 80), 'light' (V > 180), 'gray' (80-180)
         """
         # Convert to HSV for color analysis
         hsv = cv2.cvtColor(crop_rgb, cv2.COLOR_RGB2HSV)
@@ -405,42 +364,38 @@ class ReferringDetectionFilter:
         color_votes = {}
 
         def classify_pixel_color(hsv_pixel):
-            """Classify a single HSV pixel into a color category."""
+            """Classify a single HSV pixel into a color category.
+
+            Checks saturation first: saturated pixels are classified by hue
+            (chromatic), regardless of brightness. Only low-saturation pixels
+            fall through to brightness-based (achromatic) classification.
+            This prevents bright/dark reds from being misclassified as
+            'light' or 'dark'.
+            """
             h_val, s_val, v_val = hsv_pixel
 
-            # Brightness-based categories (for "light" and "dark" keywords)
-            # Dark: low brightness (includes black and dark colors)
-            if v_val < 90:
-                return 'dark'
-            # Light: mid-to-high brightness (includes white, silver, beige, light gray)
-            # Lowered from 150 to 115 to catch more light-colored vehicles
-            elif v_val > 115:
-                return 'light'
-
-            # Mid-brightness achromatic colors (90-115 range)
-            # Gray: low saturation, mid brightness
-            if s_val < 25:
-                return 'gray'
-
-            # Chromatic colors: use hue (mid-brightness saturated colors)
-            elif s_val >= 25:
-                # Red: 0-15 or 160-180
+            # Chromatic colors: if saturation is high enough, classify by hue
+            # regardless of brightness. This correctly handles bright red,
+            # dark red, etc.
+            if s_val >= 35:
                 if h_val < 15 or h_val >= 160:
                     return 'red'
-                # Orange: 15-25
                 elif 15 <= h_val < 25:
                     return 'orange'
-                # Yellow: 25-35
                 elif 25 <= h_val < 35:
                     return 'yellow'
-                # Green: 35-85
                 elif 35 <= h_val < 85:
                     return 'green'
-                # Blue: 85-160
                 elif 85 <= h_val < 160:
                     return 'blue'
 
-            return 'unknown'
+            # Achromatic: low saturation, classify by brightness
+            if v_val < 80:
+                return 'dark'
+            elif v_val > 180:
+                return 'light'
+            else:
+                return 'gray'
 
         # Vote across patches
         for i in range(grid_size):
@@ -501,12 +456,8 @@ class ReferringDetectionFilter:
             # Get dominant color via patch-based voting
             detected_color = self._get_patchwise_dominant_color(crop_rgb, grid_size=4)
 
-            # Match against color attribute in prompt
-            # Handle synonyms and related colors
-            color_match = self._match_color(detected_color, self.color_attribute)
-
-            # Binary-like scoring: 1.0 for match, 0.0 for mismatch
-            scores.append(1.0 if color_match else 0.0)
+            # Three-way scoring: 1.0=match, 0.0=chromatic mismatch, 0.5=uninformative
+            scores.append(self._color_score_three_way(detected_color, self.color_attribute))
 
         return np.array(scores, dtype=np.float32)
 
@@ -541,6 +492,29 @@ class ReferringDetectionFilter:
 
         return False
 
+    def _color_score_three_way(self, detected_color: str, target_color: str) -> float:
+        """Three-outcome color scoring for post-track gating.
+
+        Returns:
+            1.0: chromatic match (or achromatic match for achromatic targets)
+            0.0: chromatic mismatch — positive evidence against target color
+            0.5: achromatic dominant (dark/light/gray) — uninformative
+        """
+        ACHROMATIC = {'dark', 'light', 'gray', 'unknown'}
+        detected_color = detected_color.lower()
+        target_color = target_color.lower()
+
+        # Match first (handles "black" target → detected "dark" → 1.0)
+        if self._match_color(detected_color, target_color):
+            return 1.0
+
+        # Achromatic detected but didn't match target → uninformative
+        if detected_color in ACHROMATIC:
+            return 0.5
+
+        # Chromatic color that doesn't match → evidence against
+        return 0.0
+
     def get_stats(self) -> dict:
         """Return filtering statistics."""
         retention = self.total_dets_out / self.total_dets_in if self.total_dets_in > 0 else 0.0
@@ -548,7 +522,145 @@ class ReferringDetectionFilter:
             "total_in": self.total_dets_in,
             "total_out": self.total_dets_out,
             "retention_rate": retention,
-            "mode": self.mode
+            "threshold": self.threshold
+        }
+
+
+# ============================
+# Post-Track Color Gate
+# ============================
+class TrackColorGate:
+    """Stateful post-track color gate with per-track EMA and hysteresis.
+
+    Applied AFTER the tracker so that temporal identity is established first.
+    Each track maintains a running color confidence; hysteresis prevents
+    flicker from shadows or single-frame misclassifications.
+
+    Three-outcome scoring per frame:
+        1.0  supports target color (chromatic match)
+        0.0  supports NOT target color (chromatic mismatch)
+        0.5  uninformative (achromatic dominant — shadows, highlights)
+
+    Hysteresis:
+        Enter confirmed:  score > CONFIRM_THRESH for CONFIRM_COUNT of last WINDOW frames
+        Exit confirmed:   FAIL_STREAK_TO_DROP consecutive 0.0 scores
+        Unknown (0.5):    neutral — does not affect entry, exit, or fail streak
+    """
+
+    CONFIRM_THRESH = 0.65
+    DROP_THRESH = 0.35
+    CONFIRM_COUNT = 3
+    WINDOW_SIZE = 5
+    EMA_ALPHA = 0.3
+    FAIL_STREAK_TO_DROP = 5
+
+    def __init__(self, color_filter: ReferringDetectionFilter):
+        self.color_filter = color_filter
+        self.target_color = color_filter.color_attribute
+        self._state: Dict[int, dict] = {}
+        self.total_tracks_in = 0
+        self.total_tracks_out = 0
+
+    def _get_or_init(self, track_id: int) -> dict:
+        if track_id not in self._state:
+            self._state[track_id] = {
+                'ema_score': 0.5,
+                'recent_scores': deque(maxlen=self.WINDOW_SIZE),
+                'fail_streak': 0,
+                'confirmed': False,
+            }
+        return self._state[track_id]
+
+    def _score_bbox(self, frame_bgr: np.ndarray, x: float, y: float,
+                    w: float, h: float) -> float:
+        """Compute three-outcome color score for a single tlwh bbox."""
+        H_img, W_img = frame_bgr.shape[:2]
+        xi1, yi1 = max(0, int(x)), max(0, int(y))
+        xi2, yi2 = min(W_img, int(x + w)), min(H_img, int(y + h))
+
+        if xi2 <= xi1 or yi2 <= yi1 or (xi2 - xi1) < 10 or (yi2 - yi1) < 10:
+            return 0.5  # too small → uninformative
+
+        crop_rgb = cv2.cvtColor(frame_bgr[yi1:yi2, xi1:xi2], cv2.COLOR_BGR2RGB)
+        detected = self.color_filter._get_patchwise_dominant_color(crop_rgb, grid_size=4)
+        return self.color_filter._color_score_three_way(detected, self.target_color)
+
+    def update(self, tracks: list, frame_bgr: np.ndarray,
+               verbose: bool = False) -> list:
+        """Evaluate color per track and return only confirmed tracks."""
+        if not self.target_color:
+            return tracks
+
+        self.total_tracks_in += len(tracks)
+        active_ids = set()
+        confirmed = []
+
+        for t in tracks:
+            tid = t.track_id
+            active_ids.add(tid)
+            x, y, w, h = t.tlwh
+            if w * h < 10:
+                continue
+
+            state = self._get_or_init(tid)
+            score = self._score_bbox(frame_bgr, x, y, w, h)
+
+            # EMA — skip unknown (0.5) so shadows don't drag confidence down
+            if score != 0.5:
+                state['ema_score'] = (
+                    self.EMA_ALPHA * score
+                    + (1.0 - self.EMA_ALPHA) * state['ema_score']
+                )
+
+            state['recent_scores'].append(score)
+
+            # Fail streak: only 0.0 (chromatic mismatch) increments;
+            # 1.0 resets; 0.5 (unknown) leaves unchanged
+            if score == 0.0:
+                state['fail_streak'] += 1
+            elif score == 1.0:
+                state['fail_streak'] = 0
+
+            # --- hysteresis ---
+            if not state['confirmed']:
+                # Entry: need CONFIRM_COUNT frames > CONFIRM_THRESH in window
+                n_high = sum(1 for s in state['recent_scores']
+                             if s > self.CONFIRM_THRESH)
+                if n_high >= self.CONFIRM_COUNT:
+                    state['confirmed'] = True
+            else:
+                # Exit: FAIL_STREAK_TO_DROP consecutive 0.0 frames
+                if state['fail_streak'] >= self.FAIL_STREAK_TO_DROP:
+                    state['confirmed'] = False
+
+            if state['confirmed']:
+                confirmed.append(t)
+
+            if verbose:
+                tag = "CONFIRMED" if state['confirmed'] else "pending"
+                print(f"    [ColorGate] T{tid}: score={score:.1f} "
+                      f"ema={state['ema_score']:.2f} "
+                      f"streak={state['fail_streak']} {tag}")
+
+        # Purge stale tracks
+        for tid in [k for k in self._state if k not in active_ids]:
+            del self._state[tid]
+
+        self.total_tracks_out += len(confirmed)
+
+        if verbose and tracks:
+            print(f"  [ColorGate] {len(confirmed)}/{len(tracks)} tracks confirmed")
+
+        return confirmed
+
+    def get_stats(self) -> dict:
+        rate = self.total_tracks_out / self.total_tracks_in if self.total_tracks_in else 0.0
+        return {
+            'total_in': self.total_tracks_in,
+            'total_out': self.total_tracks_out,
+            'retention_rate': rate,
+            'active_states': len(self._state),
+            'target_color': self.target_color,
         }
 
 
@@ -580,8 +692,7 @@ class Worker:
         tracker_kwargs: Optional[dict] = None,
         # Referring filter
         referring_mode: str = "none",
-        referring_topk: int = 3,
-        referring_thresh: float = 0.0,
+        referring_thresh: float = 0.25,
         use_spatial_filter: bool = True,
         use_color_filter: bool = True,
         # Scale-aware detection
@@ -670,8 +781,6 @@ class Worker:
                 clip_model=self.clip_model,
                 clip_preprocess=self.clip_preprocess,
                 text_embedding=self.text_embedding,
-                mode=referring_mode,
-                topk=referring_topk,
                 threshold=referring_thresh,
                 pad=self.clip_pad,
                 device=self.device,
@@ -687,7 +796,15 @@ class Worker:
             if color_attr:
                 filters.append(f"color={color_attr}")
             filter_str = ", ".join(filters) if filters else "none"
-            print(f"[Worker] Referring filter: mode={referring_mode}, thresh={referring_thresh:.2f}, filters=[{filter_str}]")
+            print(f"[Worker] Referring filter: thresh={referring_thresh:.2f}, filters=[{filter_str}]")
+
+        # Post-track color gate (uses color methods from referring_filter)
+        self.color_gate = None
+        if use_color_filter and self.referring_filter is not None and self.referring_filter.color_attribute:
+            self.color_gate = TrackColorGate(color_filter=self.referring_filter)
+            print(f"[Worker] Post-track color gate: target={self.color_gate.target_color}, "
+                  f"confirm={TrackColorGate.CONFIRM_COUNT}/{TrackColorGate.WINDOW_SIZE} frames, "
+                  f"exit_streak={TrackColorGate.FAIL_STREAK_TO_DROP}")
 
     @staticmethod
     def _build_tracker(tracker_type: str, tracker_args: argparse.Namespace, *, frame_rate: int):
@@ -954,7 +1071,16 @@ class Worker:
                     tracks = self.update_tracker(dets, orig_h, orig_w)
 
                 if show_detail:
-                    print(f" → track={len(tracks)}")
+                    print(f" → track={len(tracks)}", end="")
+
+                # Post-track color gate
+                if self.color_gate is not None:
+                    tracks = self.color_gate.update(tracks, img, verbose=show_detail)
+                    if show_detail:
+                        print(f" → color={len(tracks)}", end="")
+
+                if show_detail:
+                    print()
 
                 # Write results
                 for t in tracks:
@@ -1011,6 +1137,12 @@ class Worker:
             stats = self.referring_filter.get_stats()
             print(f"[{seq}] Referring filter: {stats['total_in']} → {stats['total_out']} "
                   f"({stats['retention_rate']*100:.1f}% retention)")
+
+        if self.color_gate is not None:
+            cg = self.color_gate.get_stats()
+            print(f"[{seq}] Color gate: {cg['total_in']} → {cg['total_out']} "
+                  f"({cg['retention_rate']*100:.1f}% retention, "
+                  f"active_states={cg['active_states']})")
 
     def process_many(self, *, seqs: Iterable[str], img_folder: str, res_folder: str,
                     gt_folder: str, suffix: str = ".txt"):
