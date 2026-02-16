@@ -35,11 +35,11 @@ CARLA_SIM_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "carla
 # Defaults (matching eval_referkitti.py)
 # ----------------------------------------------------------------------
 DEFAULT_CONFIG = "groundingdino/config/GroundingDINO_SwinB_cfg.py"
-DEFAULT_WEIGHTS = "weights/swinb_light_visdrone_ft_best.pth"
+#DEFAULT_WEIGHTS = "weights/swinb_light_visdrone_ft_best.pth"
+DEFAULT_WEIGHTS = "weights/groundingdino_swinb_cogcoor.pth"
 DEFAULT_FRAME_RATE = 10
 DEFAULT_MIN_BOX_AREA = 10
-
-
+    
 # ----------------------------------------------------------------------
 # CARLA scenario loading
 # ----------------------------------------------------------------------
@@ -268,7 +268,8 @@ def main():
         action="store_true", default=None,
     )
     color_group.add_argument(
-        "--no_color_filter", dest="use_color_filter", action="store_false",
+        "--no_color_filter", dest="use_color_filter",
+        action="store_false", default=None,
     )
 
     spatial_group = ap.add_mutually_exclusive_group()
@@ -316,6 +317,9 @@ def main():
     print(f"\n{'=' * 60}")
     print(f"CARLA Scenario Evaluation")
     print(f"Scenarios: {args.carla_scenarios}")
+    print(f"Tracker:   {args.tracker}")
+    print(f"Color filter: {args.use_color_filter}")
+    print(f"Spatial filter: {args.use_spatial_filter}")
     print(f"Output:    {run_outdir}")
     print(f"{'=' * 60}\n")
 

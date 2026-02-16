@@ -331,7 +331,7 @@ class ReferringDetectionFilter:
         self.total_dets_out += len(filtered)
         return filtered
 
-    def _get_patchwise_dominant_color(self, crop_rgb: np.ndarray, grid_size: int = 4) -> str:
+    def _get_patchwise_dominant_color(self, crop_rgb: np.ndarray, grid_size: int = 4):
         """
         Detect dominant color from a crop using patch-based histogram voting.
 
@@ -343,8 +343,10 @@ class ReferringDetectionFilter:
             grid_size: Number of patches per dimension (default 4x4 = 16 patches)
 
         Returns:
-            Dominant color name: 'dark', 'light', 'gray', 'red', 'orange',
-                                 'yellow', 'green', 'blue', or 'unknown'
+            Tuple of (dominant_color, votes_dict):
+                dominant_color: 'dark', 'light', 'gray', 'red', 'orange',
+                                'yellow', 'green', 'blue', or 'unknown'
+                votes_dict: dict mapping color name -> patch count
 
         Note:
             - Saturated pixels (S >= 35) classified by hue first (red/blue/etc)
@@ -414,11 +416,12 @@ class ReferringDetectionFilter:
                     color = classify_pixel_color(mean_pixel)
                     color_votes[color] = color_votes.get(color, 0) + 1
 
-        # Return dominant color (most votes)
+        # Return dominant color AND votes dict
         if not color_votes:
-            return 'unknown'
+            return 'unknown', {}
 
-        return max(color_votes.items(), key=lambda x: x[1])[0]
+        dominant = max(color_votes.items(), key=lambda x: x[1])[0]
+        return dominant, color_votes
 
     def _compute_color_similarities(self, frame_bgr: np.ndarray, dets_xyxy: np.ndarray) -> np.ndarray:
         """
@@ -453,11 +456,14 @@ class ReferringDetectionFilter:
             # Extract crop
             crop_rgb = rgb[yi1:yi2, xi1:xi2]
 
-            # Get dominant color via patch-based voting
-            detected_color = self._get_patchwise_dominant_color(crop_rgb, grid_size=4)
+            # Get color votes via patch-based voting
+            detected_color, votes = self._get_patchwise_dominant_color(crop_rgb, grid_size=4)
 
-            # Three-way scoring: 1.0=match, 0.0=chromatic mismatch, 0.5=uninformative
-            scores.append(self._color_score_three_way(detected_color, self.color_attribute))
+            # Presence-based scoring: if target color has enough patches,
+            # count as match even if not the dominant color (handles aerial
+            # views where windshield reflections can outvote car body paint).
+            scores.append(self._color_score_with_presence(
+                votes, self.color_attribute, min_target_patches=2))
 
         return np.array(scores, dtype=np.float32)
 
@@ -515,6 +521,59 @@ class ReferringDetectionFilter:
         # Chromatic color that doesn't match → evidence against
         return 0.0
 
+    # Adjacent hue neighbors: when verifying a target color, patches of a
+    # neighboring hue still provide supporting evidence (e.g., orange patches
+    # support a "red" target because red cars often register as orange under
+    # warm lighting or when viewed at an angle).
+    _HUE_NEIGHBORS = {
+        'red': ['orange'],
+        'orange': ['red', 'yellow'],
+        'yellow': ['orange', 'green'],
+        'green': ['yellow'],
+        'blue': [],
+    }
+
+    def _color_score_with_presence(self, votes: dict, target_color: str,
+                                    min_target_patches: int = 3) -> float:
+        """Score based on target color *presence* rather than dominance.
+
+        From aerial views, windshield reflections (green/blue) can outvote the
+        actual car body paint. This method checks whether the target color has
+        enough patches to count as evidence, even if it's not the majority.
+
+        Neighboring hues (e.g. orange for red) are counted as supporting
+        evidence because lighting and viewing angle shift perceived hue.
+
+        Returns:
+            1.0  if target color (incl. synonyms + neighbors) has >= min_target_patches
+            Otherwise falls back to three-way scoring on dominant color.
+        """
+        if not votes:
+            return 0.5
+
+        target_lc = target_color.lower()
+
+        # Count patches matching target color (including synonyms)
+        target_count = 0
+        for color, count in votes.items():
+            if self._match_color(color, target_lc):
+                target_count += count
+
+        if target_count >= min_target_patches:
+            return 1.0
+
+        # Also count neighboring hue patches as supporting evidence
+        neighbor_count = target_count
+        for neighbor in self._HUE_NEIGHBORS.get(target_lc, []):
+            neighbor_count += votes.get(neighbor, 0)
+
+        if neighbor_count >= min_target_patches:
+            return 1.0
+
+        # Fall back to standard three-way scoring
+        dominant = max(votes, key=votes.get)
+        return self._color_score_three_way(dominant, target_lc)
+
     def get_stats(self) -> dict:
         """Return filtering statistics."""
         retention = self.total_dets_out / self.total_dets_in if self.total_dets_in > 0 else 0.0
@@ -571,19 +630,32 @@ class TrackColorGate:
             }
         return self._state[track_id]
 
+    # Vertical padding fraction applied to bbox before color voting.
+    # Compensates for tight detector bboxes that miss the car body in
+    # aerial views (windshield reflections would otherwise dominate).
+    COLOR_PAD_Y = 0.25
+
     def _score_bbox(self, frame_bgr: np.ndarray, x: float, y: float,
                     w: float, h: float) -> float:
         """Compute three-outcome color score for a single tlwh bbox."""
         H_img, W_img = frame_bgr.shape[:2]
-        xi1, yi1 = max(0, int(x)), max(0, int(y))
-        xi2, yi2 = min(W_img, int(x + w)), min(H_img, int(y + h))
+
+        # Pad bbox vertically to capture more of the object body.
+        # Aerial/elevated cameras produce tight bboxes where windshield
+        # reflections dominate; padding recovers the actual paint area.
+        pad_y = int(h * self.COLOR_PAD_Y)
+        xi1 = max(0, int(x))
+        yi1 = max(0, int(y) - pad_y // 3)       # small upward
+        xi2 = min(W_img, int(x + w))
+        yi2 = min(H_img, int(y + h) + pad_y)     # larger downward
 
         if xi2 <= xi1 or yi2 <= yi1 or (xi2 - xi1) < 10 or (yi2 - yi1) < 10:
             return 0.5  # too small → uninformative
 
         crop_rgb = cv2.cvtColor(frame_bgr[yi1:yi2, xi1:xi2], cv2.COLOR_BGR2RGB)
-        detected = self.color_filter._get_patchwise_dominant_color(crop_rgb, grid_size=4)
-        return self.color_filter._color_score_three_way(detected, self.target_color)
+        _, votes = self.color_filter._get_patchwise_dominant_color(crop_rgb, grid_size=4)
+        return self.color_filter._color_score_with_presence(
+            votes, self.target_color, min_target_patches=3)
 
     def update(self, tracks: list, frame_bgr: np.ndarray,
                verbose: bool = False) -> list:
