@@ -21,6 +21,7 @@ WORKDIR /opt/program
 
 RUN git clone https://github.com/azzy13/GroundingDINO.git
 
+# Note: Model weights are still downloaded from the original IDEA-Research repository
 RUN mkdir weights ; cd weights ; wget -q https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha/groundingdino_swint_ogc.pth ; cd ..
 
 RUN conda install -c "nvidia/label/cuda-12.1.1" cuda -y
