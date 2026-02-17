@@ -15,7 +15,7 @@ docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
 cd /isis/home/hasana3/vlmtest/GroundingDINO
 mkdir -p weights
 cd weights
-wget https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth
+wget https://github.com/azzy13/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth
 cd ..
 ```
 
