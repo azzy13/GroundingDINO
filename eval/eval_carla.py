@@ -22,6 +22,24 @@ import json
 import argparse
 import shutil
 from datetime import datetime
+from threading import Thread
+
+
+class TeeStream:
+    """Write to both a file and the original stream (stdout/stderr)."""
+
+    def __init__(self, stream, log_file):
+        self.stream = stream
+        self.log_file = log_file
+
+    def write(self, data):
+        self.stream.write(data)
+        self.log_file.write(data)
+        self.log_file.flush()
+
+    def flush(self):
+        self.stream.flush()
+        self.log_file.flush()
 
 import numpy as np
 import torch
@@ -197,6 +215,77 @@ def save_prompt_results(results, out_folder):
 
 
 # ----------------------------------------------------------------------
+# Multi-GPU worker
+# ----------------------------------------------------------------------
+def _run_on_device(device_str, scenario_items, args, tracker_kwargs,
+                   temp_images_dir, res_dir, run_outdir):
+    """Process a batch of scenarios on a single GPU device."""
+    gpu_tag = device_str.split(":")[-1] if "cuda" in device_str else "cpu"
+
+    dummy_gt_root = os.path.join(run_outdir, "_gt_stub")
+    os.makedirs(os.path.join(dummy_gt_root, "gt"), exist_ok=True)
+
+    for scenario_name, info in scenario_items:
+        text_prompt = args.text_prompt if args.text_prompt else info["text_prompt"]
+        if not text_prompt.endswith("."):
+            text_prompt += "."
+
+        print(f"\n[GPU {gpu_tag}] {'=' * 50}")
+        print(f"[GPU {gpu_tag}] Scenario: {scenario_name}")
+        print(f"[GPU {gpu_tag}] Prompt:   '{text_prompt}'")
+        print(f"[GPU {gpu_tag}] Images:   {info['images_dir']}")
+        print(f"[GPU {gpu_tag}] {'=' * 50}")
+
+        worker = Worker(
+            tracker_type=args.tracker,
+            tracker_kwargs=dict(tracker_kwargs),
+            box_thresh=args.box_threshold,
+            text_thresh=args.text_threshold,
+            use_fp16=args.fp16,
+            text_prompt=text_prompt,
+            detector=args.detector,
+            frame_rate=args.frame_rate,
+            save_video=args.save_video,
+            show_gt_boxes=args.show_gt_boxes,
+            dataset_type="mot",
+            min_box_area=args.min_box_area,
+            config_path=args.config,
+            weights_path=args.weights,
+            device=device_str,
+            referring_mode="threshold",
+            referring_thresh=args.referring_thresh,
+            use_spatial_filter=args.use_spatial_filter,
+            use_color_filter=args.use_color_filter,
+            use_scale_aware_thresh=args.use_scale_aware_thresh,
+            small_box_area_thresh=args.small_box_area_thresh,
+        )
+
+        out_path = os.path.join(res_dir, f"{scenario_name}.txt")
+        worker.process_sequence(
+            seq=scenario_name,
+            img_folder=temp_images_dir,
+            gt_folder=dummy_gt_root,
+            out_path=out_path,
+            enable_scene_graph=args.scene_graph,
+        )
+
+        if args.visualize_scene_graph:
+            jsonl_path = out_path.replace(".txt", "_scene_graphs.jsonl")
+            if os.path.isfile(jsonl_path):
+                viz_dir = os.path.join(run_outdir, "viz", scenario_name)
+                import subprocess
+                script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                      "visualize_scene_graph.py")
+                subprocess.run([
+                    sys.executable, script,
+                    "--jsonl", jsonl_path,
+                    "--images", info["images_dir"],
+                    "--out", viz_dir,
+                ], check=False)
+                print(f"[GPU {gpu_tag}] Scene graph viz → {viz_dir}/")
+
+
+# ----------------------------------------------------------------------
 # Main
 # ----------------------------------------------------------------------
 def main():
@@ -210,7 +299,11 @@ def main():
         help="Path to carla_follow_scenarios/ directory.",
     )
     ap.add_argument(
-        "--text_prompt", type=str, default=None,
+        "--scenarios", nargs="+", default=None, metavar="SCENARIO",
+        help="Run only these scenario names, e.g. --scenarios scenario_001 scenario_003",
+    )
+    ap.add_argument(
+        "--text_prompt", "--prompt", type=str, default=None, dest="text_prompt",
         help="Override text prompt for all scenarios (default: read from gt.json).",
     )
     ap.add_argument(
@@ -225,22 +318,16 @@ def main():
     ap.add_argument("--detector", choices=["dino", "florence2"], default="dino")
     ap.add_argument("--box_threshold", type=float, default=0.40)
     ap.add_argument("--text_threshold", type=float, default=0.80)
-    ap.add_argument(
-        "--use_scale_aware_thresh", action="store_true", default=True,
-    )
-    ap.add_argument(
-        "--no_scale_aware_thresh", dest="use_scale_aware_thresh",
-        action="store_false",
-    )
+    ap.add_argument("--use_scale_aware_thresh", action=argparse.BooleanOptionalAction, default=True)
     ap.add_argument("--small_box_area_thresh", type=int, default=5000)
-    ap.add_argument("--fp16", action="store_true")
+    ap.add_argument("--fp16", action=argparse.BooleanOptionalAction, default=True)
 
     # Tracker (defaults from eval_referkitti.py)
     ap.add_argument(
         "--tracker", choices=["bytetrack", "clip", "smartclip"], default="bytetrack",
     )
     ap.add_argument("--track_thresh", type=float, default=0.45)
-    ap.add_argument("--match_thresh", type=float, default=0.85)
+    ap.add_argument("--match_thresh", type=float, default=0.80)
     ap.add_argument("--track_buffer", type=int, default=120)
     ap.add_argument("--lambda_weight", type=float, default=0.25)
     ap.add_argument("--low_thresh", type=float, default=0.1)
@@ -262,23 +349,8 @@ def main():
     # Referring detection filter
     ap.add_argument("--referring_thresh", type=float, default=0.25)
 
-    color_group = ap.add_mutually_exclusive_group()
-    color_group.add_argument(
-        "--use_color_filter", dest="use_color_filter",
-        action="store_true", default=None,
-    )
-    color_group.add_argument(
-        "--no_color_filter", dest="use_color_filter",
-        action="store_false", default=None,
-    )
-
-    spatial_group = ap.add_mutually_exclusive_group()
-    spatial_group.add_argument(
-        "--use_spatial_filter", action="store_true", default=None,
-    )
-    spatial_group.add_argument(
-        "--no_spatial_filter", dest="use_spatial_filter", action="store_false",
-    )
+    ap.add_argument("--use_color_filter", action=argparse.BooleanOptionalAction, default=True)
+    ap.add_argument("--use_spatial_filter", action=argparse.BooleanOptionalAction, default=True)
 
     ap.add_argument(
         "--tracker_kv", action="append",
@@ -291,15 +363,23 @@ def main():
     ap.add_argument("--frame_rate", type=int, default=DEFAULT_FRAME_RATE)
     ap.add_argument("--save_video", action="store_true")
     ap.add_argument("--show_gt_boxes", action="store_true")
-    ap.add_argument("--devices", type=str, default="0")
+    ap.add_argument("--devices", type=str, default="0,1")
+
+    # Scene graph
+    ap.add_argument(
+        "--scene_graph", action="store_true", default=True,
+        help="Build scene graphs and save JSONL to results/ alongside MOT output.",
+    )
+    ap.add_argument(
+        "--visualize_scene_graph", action="store_true", default=True,
+        help="Render per-frame scene graph PNGs to viz/<scenario>/ (implies --scene_graph).",
+    )
 
     args = ap.parse_args()
 
-    # Set defaults for filter flags
-    if args.use_color_filter is None:
-        args.use_color_filter = True
-    if args.use_spatial_filter is None:
-        args.use_spatial_filter = True
+    # Visualizing scene graphs requires building them first
+    if args.visualize_scene_graph:
+        args.scene_graph = True
 
     # ------------------------------------------------------------------
     # Output directories
@@ -313,6 +393,12 @@ def main():
     os.makedirs(run_outdir, exist_ok=True)
     res_dir = os.path.join(run_outdir, "results")
     temp_images_dir = os.path.join(run_outdir, "images")
+
+    # Tee stdout/stderr to a log file in the output directory
+    log_path = os.path.join(run_outdir, "run_log.txt")
+    _log_fh = open(log_path, "w")
+    sys.stdout = TeeStream(sys.__stdout__, _log_fh)
+    sys.stderr = TeeStream(sys.__stderr__, _log_fh)
 
     print(f"\n{'=' * 60}")
     print(f"CARLA Scenario Evaluation")
@@ -328,6 +414,13 @@ def main():
     # ------------------------------------------------------------------
     print("Loading CARLA scenarios...")
     scenario_info = load_carla_scenarios(args.carla_scenarios)
+
+    if args.scenarios:
+        unknown = set(args.scenarios) - set(scenario_info)
+        if unknown:
+            print(f"ERROR: Unknown scenarios: {sorted(unknown)}")
+            sys.exit(1)
+        scenario_info = {k: v for k, v in scenario_info.items() if k in args.scenarios}
 
     if not scenario_info:
         print("ERROR: No valid CARLA scenarios found.")
@@ -357,62 +450,46 @@ def main():
     )
     tracker_kwargs.update(parse_kv_list(args.tracker_kv))
 
-    # Device selection
-    device_str = f"cuda:{args.devices.split(',')[0].strip()}" if torch.cuda.is_available() else "cpu"
-
     # ------------------------------------------------------------------
-    # Step 3: Run inference per scenario
+    # Step 3: Run inference per scenario (parallel across GPUs)
     # ------------------------------------------------------------------
     os.makedirs(res_dir, exist_ok=True)
 
-    # Dummy gt_folder for Worker (it only reads GT for video visualization)
-    dummy_gt_root = os.path.join(run_outdir, "_gt_stub")
-    os.makedirs(os.path.join(dummy_gt_root, "gt"), exist_ok=True)
+    devices = [d.strip() for d in args.devices.split(",") if d.strip()]
+    if not devices:
+        devices = ["0"]
+    scenario_list = sorted(scenario_info.items())
 
-    for scenario_name, info in sorted(scenario_info.items()):
-        text_prompt = args.text_prompt if args.text_prompt else info["text_prompt"]
-        # GroundingDINO expects trailing period
-        if not text_prompt.endswith("."):
-            text_prompt = text_prompt + "."
+    if len(devices) > 1 and len(scenario_list) > 1:
+        # Distribute scenarios across GPUs round-robin
+        chunks = [[] for _ in devices]
+        for i, item in enumerate(scenario_list):
+            chunks[i % len(devices)].append(item)
 
-        print(f"\n{'=' * 60}")
-        print(f"Scenario: {scenario_name}")
-        print(f"Prompt:   '{text_prompt}'")
-        print(f"Images:   {info['images_dir']}")
-        print(f"{'=' * 60}")
+        print(f"\nRunning on {len(devices)} GPUs in parallel...")
+        for gpu_id, chunk in zip(devices, chunks):
+            names = [s[0] for s in chunk]
+            print(f"  GPU {gpu_id}: {len(chunk)} scenarios - {names}")
 
-        worker = Worker(
-            tracker_type=args.tracker,
-            tracker_kwargs=dict(tracker_kwargs),
-            box_thresh=args.box_threshold,
-            text_thresh=args.text_threshold,
-            use_fp16=args.fp16,
-            text_prompt=text_prompt,
-            detector=args.detector,
-            frame_rate=args.frame_rate,
-            save_video=args.save_video,
-            show_gt_boxes=args.show_gt_boxes,
-            dataset_type="mot",
-            min_box_area=args.min_box_area,
-            config_path=args.config,
-            weights_path=args.weights,
-            device=device_str,
-            referring_mode="threshold",
-            referring_thresh=args.referring_thresh,
-            use_spatial_filter=args.use_spatial_filter,
-            use_color_filter=args.use_color_filter,
-            use_scale_aware_thresh=args.use_scale_aware_thresh,
-            small_box_area_thresh=args.small_box_area_thresh,
-        )
+        threads = []
+        for gpu_id, chunk in zip(devices, chunks):
+            if not chunk:
+                continue
+            device_str = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
+            t = Thread(
+                target=_run_on_device,
+                args=(device_str, chunk, args, tracker_kwargs,
+                      temp_images_dir, res_dir, run_outdir),
+            )
+            threads.append(t)
+            t.start()
 
-        out_path = os.path.join(res_dir, f"{scenario_name}.txt")
-
-        worker.process_sequence(
-            seq=scenario_name,
-            img_folder=temp_images_dir,
-            gt_folder=dummy_gt_root,
-            out_path=out_path,
-        )
+        for t in threads:
+            t.join()
+    else:
+        device_str = f"cuda:{devices[0]}" if torch.cuda.is_available() else "cpu"
+        _run_on_device(device_str, scenario_list, args, tracker_kwargs,
+                       temp_images_dir, res_dir, run_outdir)
 
     # ------------------------------------------------------------------
     # Step 4: Prompt-compliance evaluation
@@ -450,7 +527,13 @@ def main():
         print(f"  Total Semantic ID Switches:    {total_sid}")
 
     print(f"\nResults saved to: {run_outdir}")
+    print(f"Log saved to: {log_path}")
     print(f"{'=' * 60}")
+
+    # Close log file and restore streams
+    sys.stdout = sys.__stdout__
+    sys.stderr = sys.__stderr__
+    _log_fh.close()
 
 
 if __name__ == "__main__":

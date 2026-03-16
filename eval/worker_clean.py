@@ -1057,6 +1057,7 @@ class Worker:
         out_path: str,
         sort_frames: bool = True,
         video_out_path: Optional[str] = None,
+        enable_scene_graph: bool = False,
     ):
         """
         Process a sequence and generate tracking results.
@@ -1100,6 +1101,12 @@ class Worker:
                 print(f"[{seq}] Tracking {len(self.target_object_ids)} target object IDs: {sorted(self.target_object_ids)}")
 
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+        # Scene graph builder (optional)
+        sg_builder = None
+        if enable_scene_graph:
+            from scene_graph import SceneGraphBuilder
+            sg_builder = SceneGraphBuilder(text_prompt=self.text_prompt)
 
         with open(out_path, "w") as f_res:
             for idx, frame_name in enumerate(frame_files):
@@ -1154,6 +1161,10 @@ class Worker:
                 if show_detail:
                     print()
 
+                # Scene graph update
+                if sg_builder is not None:
+                    sg_builder.update(frame_id, tracks, orig_h, orig_w, frame_bgr=img)
+
                 # Write results
                 for t in tracks:
                     x, y, w, h = t.tlwh
@@ -1200,6 +1211,15 @@ class Worker:
                     video_writer.write(vis_frame)
 
         print(f"[{seq}] Saved results to: {out_path}")
+
+        # Save scene graph
+        if sg_builder is not None:
+            sg_path = out_path.replace(".txt", "_scene_graphs.jsonl")
+            sg_builder.save_jsonl(sg_path)
+            summary = sg_builder.get_summary()
+            print(f"[{seq}] Scene graph: {summary['total_frames']} frames, "
+                  f"avg {summary['avg_nodes_per_frame']} nodes, "
+                  f"avg {summary['avg_edges_per_frame']} edges/frame")
 
         if video_writer is not None:
             video_writer.release()

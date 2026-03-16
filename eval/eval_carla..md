@@ -261,3 +261,32 @@ SUMMARY ACROSS ALL SCENARIOS
 
 Results saved to: outputs/carla_eval_2026-02-16_0315
 ============================================================
+
+# on all  bytetrack no filter
+
+============================================================
+SUMMARY ACROSS ALL SCENARIOS
+============================================================
+  Avg Semantic Precision:        0.6729
+  Avg Semantic Recall:           0.7141
+  Avg Prompt Coverage Ratio:     0.7371
+  Avg Distractor Confusion Rate: 0.1937
+  Total Semantic ID Switches:    1
+
+Results saved to: outputs/carla_eval_2026-02-16_0437
+
+# bytetrack filter on
+
+============================================================
+SUMMARY ACROSS ALL SCENARIOS
+============================================================
+  Avg Semantic Precision:        0.7058
+  Avg Semantic Recall:           0.7445
+  Avg Prompt Coverage Ratio:     0.7701
+  Avg Distractor Confusion Rate: 0.1511
+  Total Semantic ID Switches:    0
+
+Results saved to: outputs/carla_eval_2026-02-16_0621
+============================================================
+
+# final run bytetrack
