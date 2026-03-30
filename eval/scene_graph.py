@@ -169,9 +169,12 @@ class SceneGraphBuilder:
                 (n["cx_norm"], n["cy_norm"], n["area_norm"])
             )
 
-        # Add motion attribute to each node
+        # Add motion + heading attributes to each node
         for n in nodes:
-            n["motion"] = self._motion_label(n["track_id"])
+            motion_attrs = self._motion_attrs(n["track_id"])
+            n["motion"]       = motion_attrs["motion"]
+            n["heading_vec"]  = motion_attrs["heading_vec"]
+            n["heading_deg"]  = motion_attrs["heading_deg"]
 
         # Pairwise edges
         edges = []
@@ -338,25 +341,233 @@ class SceneGraphBuilder:
             return "medium"
         return "large"
 
-    def _motion_label(self, track_id: int) -> str:
-        """Classify motion using the last few positions in history."""
+    def _motion_attrs(self, track_id: int) -> Dict[str, Any]:
+        """Return motion label, heading vector and heading angle from position history.
+
+        heading_vec: [dx, dy] unit vector in normalised image coords (right=+x, down=+y).
+                     [0, 0] when stationary or insufficient history.
+        heading_deg: angle in degrees; 0=right, 90=down, ±180=left, -90=up.
+                     None when stationary or insufficient history.
+        """
         hist = self._history.get(track_id)
         if hist is None or len(hist) < 3:
-            return "new"
+            return {"motion": "new", "heading_vec": [0.0, 0.0], "heading_deg": None}
 
         positions = list(hist)
-        # Displacement over last 3 entries
-        dx = positions[-1][0] - positions[-3][0]
-        dy = positions[-1][1] - positions[-3][1]
-        # Area change (approaching vs receding)
+        # Use full window for heading stability
+        dx = positions[-1][0] - positions[0][0]
+        dy = positions[-1][1] - positions[0][1]
+        # Area change over short window for approaching/receding
         da = positions[-1][2] - positions[-3][2]
 
         dist = math.sqrt(dx ** 2 + dy ** 2)
 
         if dist < 0.01:
-            return "stationary"
-        if da > 0.001:
-            return "approaching"
-        if da < -0.001:
-            return "receding"
-        return "moving"
+            motion = "stationary"
+            heading_vec = [0.0, 0.0]
+            heading_deg = None
+        else:
+            inv = 1.0 / dist
+            heading_vec = [round(dx * inv, 4), round(dy * inv, 4)]
+            heading_deg = round(math.degrees(math.atan2(dy, dx)), 1)
+            if da > 0.001:
+                motion = "approaching"
+            elif da < -0.001:
+                motion = "receding"
+            else:
+                motion = "moving"
+
+        return {"motion": motion, "heading_vec": heading_vec, "heading_deg": heading_deg}
+
+
+# ---------------------------------------------------------------------------
+# SceneGraphMissionFilter
+# ---------------------------------------------------------------------------
+
+# Color keywords recognised in prompts
+_COLOR_KEYWORDS = ["red", "blue", "green", "yellow", "orange", "white", "black",
+                   "gray", "grey", "dark", "light", "silver"]
+
+# Spatial keywords → normalised region constraint
+_SPATIAL_KEYWORDS = {
+    "top":    ("cy_norm", "max", 0.40),   # cy_norm < 0.40
+    "upper":  ("cy_norm", "max", 0.40),
+    "bottom": ("cy_norm", "min", 0.60),
+    "lower":  ("cy_norm", "min", 0.60),
+    "left":   ("cx_norm", "max", 0.45),
+    "right":  ("cx_norm", "min", 0.55),
+    "center": ("cx_norm", "range", (0.25, 0.75)),
+}
+
+
+class SceneGraphMissionFilter:
+    """
+    Post-track filter driven by the scene graph.
+
+    For each frame, call decide(frame_graph) → set of track_ids that satisfy
+    the mission constraints parsed from the text prompt.
+
+    Constraints currently supported (parsed automatically from the prompt):
+      - color  : e.g. "red" → requires non-zero red votes in color_votes
+      - region : e.g. "top" → requires cy_norm < 0.40
+
+    Temporal accumulation: color votes are summed across a rolling window of
+    HISTORY_LEN frames so that a single misclassified frame doesn't drop a track.
+
+    Scoring:
+      Each track gets a score in [0, 1] per constraint.  The final keep/drop
+      decision uses a soft threshold (default 0.10) so borderline cases are
+      kept rather than silently dropped.
+    """
+
+    HISTORY_LEN = 15        # frames of color vote history to accumulate
+    COLOR_MIN_RATIO = 0.05  # fraction of accumulated votes that must be target color
+    REGION_MARGIN = 0.08    # extra slack added to region bounds
+
+    def __init__(self, text_prompt: str, hard_mode: bool = False,
+                 score_thresh: float = 0.10):
+        """
+        Args:
+            text_prompt: mission description, e.g. "red sedan at top".
+            hard_mode:   if True, any failing constraint immediately rejects the
+                         track.  If False (default), uses score_thresh.
+            score_thresh: minimum combined score to keep a track (soft mode only).
+        """
+        self.text_prompt = text_prompt.lower()
+        self.hard_mode = hard_mode
+        self.score_thresh = score_thresh
+
+        self.color_constraint: Optional[str] = self._parse_color()
+        self.region_constraints: List[tuple] = self._parse_region()
+
+        # track_id -> deque of color_votes dicts
+        self._color_history: Dict[int, deque] = {}
+
+        print(f"[MissionFilter] prompt='{text_prompt}' | "
+              f"color={self.color_constraint} | "
+              f"region={self.region_constraints} | "
+              f"mode={'hard' if hard_mode else f'soft(thresh={score_thresh})'}")
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def decide(self, frame_graph: Dict[str, Any]) -> set:
+        """
+        Return set of track_ids to keep from this frame's scene graph.
+
+        Args:
+            frame_graph: dict returned by SceneGraphBuilder.update()
+        """
+        kept = set()
+        for node in frame_graph.get("nodes", []):
+            tid = node["track_id"]
+            self._accumulate_color(tid, node.get("color_votes", {}))
+            score = self._score_node(node, tid)
+            if self.hard_mode:
+                if score >= 1.0:
+                    kept.add(tid)
+            else:
+                if score >= self.score_thresh:
+                    kept.add(tid)
+        return kept
+
+    def get_track_color_evidence(self, track_id: int) -> Dict[str, Any]:
+        """Return accumulated color vote stats for a track (for debugging)."""
+        hist = self._color_history.get(track_id)
+        if not hist:
+            return {}
+        total: Dict[str, int] = {}
+        for votes in hist:
+            for color, count in votes.items():
+                total[color] = total.get(color, 0) + count
+        grand = sum(total.values()) or 1
+        return {c: round(v / grand, 3) for c, v in sorted(total.items(),
+                                                            key=lambda x: -x[1])}
+
+    # ------------------------------------------------------------------
+    # Scoring
+    # ------------------------------------------------------------------
+
+    def _score_node(self, node: dict, track_id: int) -> float:
+        scores = []
+
+        # --- color constraint ---
+        if self.color_constraint:
+            scores.append(self._color_score(track_id))
+
+        # --- region constraints ---
+        for axis, op, bound in self.region_constraints:
+            scores.append(self._region_score(node, axis, op, bound))
+
+        if not scores:
+            return 1.0  # no constraints → keep everything
+        if self.hard_mode:
+            return 1.0 if all(s >= 0.5 for s in scores) else 0.0
+        return float(sum(scores) / len(scores))
+
+    def _color_score(self, track_id: int) -> float:
+        """Fraction of accumulated votes for the target color."""
+        hist = self._color_history.get(track_id)
+        if not hist:
+            return 1.0  # no evidence yet → don't penalise
+        total_target = 0
+        total_all = 0
+        for votes in hist:
+            total_target += votes.get(self.color_constraint, 0)
+            total_all += sum(votes.values())
+        if total_all == 0:
+            return 1.0
+        ratio = total_target / total_all
+        # Normalise: 0 at ratio=0, 1 at ratio >= COLOR_MIN_RATIO*4
+        return min(1.0, ratio / max(self.COLOR_MIN_RATIO, 1e-6))
+
+    @staticmethod
+    def _region_score(node: dict, axis: str, op: str, bound) -> float:
+        """1.0 if the node satisfies the spatial constraint, graded otherwise."""
+        val = node.get(axis, 0.5)
+        margin = SceneGraphMissionFilter.REGION_MARGIN
+        if op == "max":
+            # val should be < bound; full score at val=0, zero at val=bound+margin
+            limit = bound + margin
+            return max(0.0, min(1.0, (limit - val) / (limit + 1e-9)))
+        elif op == "min":
+            # val should be > bound; full score at val=1, zero at val=bound-margin
+            limit = bound - margin
+            return max(0.0, min(1.0, (val - limit) / (1.0 - limit + 1e-9)))
+        elif op == "range":
+            lo, hi = bound
+            lo -= margin
+            hi += margin
+            if lo <= val <= hi:
+                return 1.0
+            dist = min(abs(val - lo), abs(val - hi))
+            return max(0.0, 1.0 - dist / (margin + 1e-9))
+        return 1.0
+
+    # ------------------------------------------------------------------
+    # Color history
+    # ------------------------------------------------------------------
+
+    def _accumulate_color(self, track_id: int, votes: dict):
+        if track_id not in self._color_history:
+            self._color_history[track_id] = deque(maxlen=self.HISTORY_LEN)
+        self._color_history[track_id].append(dict(votes))
+
+    # ------------------------------------------------------------------
+    # Prompt parsing
+    # ------------------------------------------------------------------
+
+    def _parse_color(self) -> Optional[str]:
+        for kw in _COLOR_KEYWORDS:
+            if kw in self.text_prompt:
+                # normalise grey → gray
+                return "gray" if kw == "grey" else kw
+        return None
+
+    def _parse_region(self) -> List[tuple]:
+        constraints = []
+        for kw, spec in _SPATIAL_KEYWORDS.items():
+            if kw in self.text_prompt:
+                constraints.append(spec)
+        return constraints

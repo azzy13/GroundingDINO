@@ -44,7 +44,8 @@ class TeeStream:
 import numpy as np
 import torch
 
-from worker_clean import Worker, parse_kv_list
+from worker_clean import Worker as WorkerClean, parse_kv_list
+from worker_simple import Worker as WorkerSimple
 
 # Prompt-compliance evaluator (lazy import in function)
 CARLA_SIM_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "carla_sim")
@@ -236,29 +237,47 @@ def _run_on_device(device_str, scenario_items, args, tracker_kwargs,
         print(f"[GPU {gpu_tag}] Images:   {info['images_dir']}")
         print(f"[GPU {gpu_tag}] {'=' * 50}")
 
-        worker = Worker(
-            tracker_type=args.tracker,
-            tracker_kwargs=dict(tracker_kwargs),
-            box_thresh=args.box_threshold,
-            text_thresh=args.text_threshold,
-            use_fp16=args.fp16,
-            text_prompt=text_prompt,
-            detector=args.detector,
-            frame_rate=args.frame_rate,
-            save_video=args.save_video,
-            show_gt_boxes=args.show_gt_boxes,
-            dataset_type="mot",
-            min_box_area=args.min_box_area,
-            config_path=args.config,
-            weights_path=args.weights,
-            device=device_str,
-            referring_mode="threshold",
-            referring_thresh=args.referring_thresh,
-            use_spatial_filter=args.use_spatial_filter,
-            use_color_filter=args.use_color_filter,
-            use_scale_aware_thresh=args.use_scale_aware_thresh,
-            small_box_area_thresh=args.small_box_area_thresh,
-        )
+        if args.worker == "simple":
+            worker = WorkerSimple(
+                config_path=args.config,
+                weights_path=args.weights,
+                text_prompt=text_prompt,
+                box_thresh=args.box_threshold,
+                text_thresh=args.text_threshold,
+                use_fp16=args.fp16,
+                device=device_str,
+                tracker_kwargs=dict(tracker_kwargs),
+                frame_rate=args.frame_rate,
+                use_scale_aware_thresh=args.use_scale_aware_thresh,
+                small_box_area_thresh=args.small_box_area_thresh,
+                use_mission_filter=True,
+                min_box_area=args.min_box_area,
+                save_video=args.save_video,
+            )
+        else:
+            worker = WorkerClean(
+                tracker_type=args.tracker,
+                tracker_kwargs=dict(tracker_kwargs),
+                box_thresh=args.box_threshold,
+                text_thresh=args.text_threshold,
+                use_fp16=args.fp16,
+                text_prompt=text_prompt,
+                detector=args.detector,
+                frame_rate=args.frame_rate,
+                save_video=args.save_video,
+                show_gt_boxes=args.show_gt_boxes,
+                dataset_type="mot",
+                min_box_area=args.min_box_area,
+                config_path=args.config,
+                weights_path=args.weights,
+                device=device_str,
+                referring_mode="threshold",
+                referring_thresh=args.referring_thresh,
+                use_spatial_filter=args.use_spatial_filter,
+                use_color_filter=args.use_color_filter,
+                use_scale_aware_thresh=args.use_scale_aware_thresh,
+                small_box_area_thresh=args.small_box_area_thresh,
+            )
 
         out_path = os.path.join(res_dir, f"{scenario_name}.txt")
         worker.process_sequence(
@@ -291,6 +310,13 @@ def _run_on_device(device_str, scenario_items, args, tracker_kwargs,
 def main():
     ap = argparse.ArgumentParser(
         description="CARLA scenario evaluation using GroundingDINO + Tracker"
+    )
+
+    # Worker selection
+    ap.add_argument(
+        "--worker", choices=["clean", "simple"], default="clean",
+        help="'clean' = full worker_clean pipeline (CLIP+color+spatial filters); "
+             "'simple' = ByteTrack + SceneGraphMissionFilter only (no CLIP).",
     )
 
     # CARLA-specific
