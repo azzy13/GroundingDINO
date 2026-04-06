@@ -20,13 +20,14 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 import cv2
 import numpy as np
+import time
 import torch
 from PIL import Image
 from torch.cuda.amp import autocast
 from torchvision import transforms as T
 
 from groundingdino.util.inference import load_model, predict
-from scene_graph import SceneGraphBuilder, SceneGraphMissionFilter
+from scene_graph import SceneGraphBuilder, SceneGraphMissionFilter, ColorReIDMatcher
 
 # ============================================================
 # Defaults
@@ -132,6 +133,9 @@ class Worker:
         use_mission_filter: bool = True,
         mission_filter_hard: bool = False,
         mission_filter_thresh: float = 0.10,
+        # Color re-ID (recovers track IDs after FOV/perspective changes)
+        use_color_reid: bool = True,
+        reid_max_lost_frames: int = 25,
         # Misc
         min_box_area: int = DEFAULT_MIN_BOX_AREA,
         save_video: bool = False,
@@ -146,6 +150,8 @@ class Worker:
         self.save_video             = bool(save_video)
         self.frame_rate             = int(frame_rate)
         self.use_mission_filter     = use_mission_filter
+        self.use_color_reid         = bool(use_color_reid)
+        self._reid_max_lost_frames  = int(reid_max_lost_frames)
 
         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -175,6 +181,7 @@ class Worker:
 
         print(f"[WorkerSimple] prompt='{text_prompt}' | box_thresh={box_thresh} "
               f"| mission_filter={'on' if use_mission_filter else 'off'} "
+              f"| color_reid={'on' if use_color_reid else 'off'} "
               f"| device={self.device}")
 
     # ------------------------------------------------------------------
@@ -206,13 +213,16 @@ class Worker:
 
     def _scale_aware_filter(self, dets: np.ndarray) -> np.ndarray:
         kept = []
+        tiny = self.small_box_area_thresh // 4   # e.g. 1250 px² — very distant objects
         for det in dets:
             x1, y1, x2, y2, score = det
             area = (x2 - x1) * (y2 - y1)
-            if area < self.small_box_area_thresh:
-                thresh = self.box_thresh * 0.6
+            if area < tiny:
+                thresh = self.box_thresh * 0.45  # very lenient for tiny objects
+            elif area < self.small_box_area_thresh:
+                thresh = self.box_thresh * 0.60
             elif area < self.small_box_area_thresh * 3:
-                thresh = self.box_thresh * 0.8
+                thresh = self.box_thresh * 0.80
             else:
                 thresh = self.box_thresh
             if score >= thresh:
@@ -256,19 +266,28 @@ class Worker:
                 score_thresh=self._mf_thresh,
             )
 
+        # Color re-ID: recovers track IDs lost during FOV/perspective changes
+        color_reid = ColorReIDMatcher(max_lost_frames=self._reid_max_lost_frames) \
+            if self.use_color_reid else None
+
         # Video writer
         video_writer = None
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
 
         stats = {"det_total": 0, "track_total": 0, "kept_total": 0, "frames": 0}
+        timings = {"load": 0.0, "preprocess": 0.0, "detect": 0.0,
+                   "track": 0.0, "scene_graph": 0.0, "filter": 0.0}
 
         with open(out_path, "w") as f_res:
             for idx, frame_name in enumerate(frame_files):
                 frame_id = parse_frame_id(frame_name)
+
+                t0 = time.perf_counter()
                 img = cv2.imread(os.path.join(seq_path, frame_name))
                 if img is None:
                     continue
                 orig_h, orig_w = img.shape[:2]
+                timings["load"] += time.perf_counter() - t0
 
                 if idx == 0:
                     print(f"[{seq}] F{frame_id}: {orig_h}x{orig_w} | ByteTrack | dino")
@@ -277,26 +296,49 @@ class Worker:
                     vpath = out_path.replace(".txt", ".mp4")
                     video_writer = cv2.VideoWriter(vpath, fourcc, self.frame_rate, (orig_w, orig_h))
 
-                # Detect
+                # Preprocess
+                t0 = time.perf_counter()
                 tensor = self._preprocess(img)
+                timings["preprocess"] += time.perf_counter() - t0
+
+                # Detect (GPU — sync before/after for accurate wall time)
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                t0 = time.perf_counter()
                 dets = self._detect(img, tensor, orig_h, orig_w)
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                timings["detect"] += time.perf_counter() - t0
 
                 # Track
+                t0 = time.perf_counter()
                 if dets.size == 0:
                     dets_in = np.empty((0, 5), dtype=np.float32)
                 else:
                     dets_in = dets
                 tracks = self.tracker.update(dets_in, [orig_h, orig_w], [orig_h, orig_w])
+                timings["track"] += time.perf_counter() - t0
 
                 # Scene graph update
+                t0 = time.perf_counter()
                 frame_graph = sg_builder.update(frame_id, tracks, orig_h, orig_w, frame_bgr=img)
+                timings["scene_graph"] += time.perf_counter() - t0
 
                 # Mission filter: decide which tracks to keep
+                t0 = time.perf_counter()
                 if mission_filter is not None:
                     kept_ids = mission_filter.decide(frame_graph)
                     tracks_out = [t for t in tracks if t.track_id in kept_ids]
                 else:
                     tracks_out = tracks
+                timings["filter"] += time.perf_counter() - t0
+
+                # Color re-ID: remap new IDs that match recently-lost tracks.
+                # Use all ByteTrack IDs (not just tracks_out) so the graveyard
+                # doesn't misfire when the mission filter removes a track.
+                if color_reid is not None:
+                    all_bt_ids = {t.track_id for t in tracks}
+                    color_reid.update(frame_id, all_bt_ids, frame_graph)
 
                 stats["det_total"]   += len(dets)
                 stats["track_total"] += len(tracks)
@@ -307,12 +349,13 @@ class Worker:
                     print(f"[{seq}] F{frame_id}: det={len(dets)} "
                           f"track={len(tracks)} kept={len(tracks_out)}")
 
-                # Write MOT output
+                # Write MOT output (use resolved ID if re-ID is active)
                 for t in tracks_out:
                     x, y, w, h = t.tlwh
                     if w * h > self.min_box_area:
+                        out_id = color_reid.resolve(t.track_id) if color_reid else t.track_id
                         f_res.write(
-                            f"{frame_id},{t.track_id},{x:.2f},{y:.2f},"
+                            f"{frame_id},{out_id},{x:.2f},{y:.2f},"
                             f"{w:.2f},{h:.2f},1,-1,-1,-1\n"
                         )
 
@@ -322,16 +365,24 @@ class Worker:
                     for t in tracks_out:
                         x, y, w, h = t.tlwh
                         if w * h > self.min_box_area:
+                            out_id = color_reid.resolve(t.track_id) if color_reid else t.track_id
                             cv2.rectangle(vis, (int(x), int(y)),
                                           (int(x + w), int(y + h)), (0, 255, 0), 2)
-                            cv2.putText(vis, f"ID:{t.track_id}", (int(x), int(y) - 5),
+                            cv2.putText(vis, f"ID:{out_id}", (int(x), int(y) - 5),
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                     video_writer.write(vis)
 
+        n = max(1, stats["frames"])
+        total_ms = sum(timings.values()) * 1000 / n
         print(f"[{seq}] Done. frames={stats['frames']} "
-              f"avg_det={stats['det_total']/max(1,stats['frames']):.1f} "
-              f"avg_track={stats['track_total']/max(1,stats['frames']):.1f} "
-              f"avg_kept={stats['kept_total']/max(1,stats['frames']):.1f}")
+              f"avg_det={stats['det_total']/n:.1f} "
+              f"avg_track={stats['track_total']/n:.1f} "
+              f"avg_kept={stats['kept_total']/n:.1f}")
+        print(f"[{seq}] Latency per frame (avg over {stats['frames']} frames):")
+        for stage, t in timings.items():
+            ms = t * 1000 / n
+            print(f"  {stage:<12} {ms:6.1f} ms  ({ms/total_ms*100:.0f}%)")
+        print(f"  {'TOTAL':<12} {total_ms:6.1f} ms  → {1000/total_ms:.1f} FPS theoretical")
         print(f"[{seq}] Results → {out_path}")
 
         # Save scene graph

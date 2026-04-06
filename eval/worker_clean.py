@@ -427,6 +427,8 @@ class ReferringDetectionFilter:
         """
         Compute color matching scores using patch-based histogram voting.
 
+        Compute color matching scores using patch-based histogram voting.
+
         This replaces CLIP-based color filtering with direct HSV color analysis.
         Returns binary-like scores: 1.0 for color match, 0.0 for mismatch.
         """

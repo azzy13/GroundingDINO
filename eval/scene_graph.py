@@ -25,36 +25,63 @@ import numpy as np
 
 
 # ---------------------------------------------------------------------------
-# Standalone HSV color classifier (subset of worker_clean's patch voting)
+# LAB color classifier
 # ---------------------------------------------------------------------------
 
-def _classify_hsv_pixel(h_val: float, s_val: float, v_val: float) -> str:
-    """Classify one mean-HSV patch value into a color name."""
-    if s_val >= 35:
-        if h_val < 15 or h_val >= 160:
+def _classify_lab_patch(L: float, a_raw: float, b_raw: float) -> str:
+    """Classify one mean-LAB patch value into a color name.
+
+    Uses CIE L*a*b* instead of HSV because:
+      - Lightness (L*) is fully separated from chroma, so dark red/blue
+        cars are not misclassified as achromatic.
+      - The a* axis (green<->red) is linear — no hue wrap-around at red.
+      - Perceptually uniform: equal distance ~ equal perceived difference.
+
+    OpenCV stores LAB as uint8 with L in [0,255] and a,b in [0,255]
+    centered at 128, so a and b are shifted back to the signed range here.
+    """
+    a = a_raw - 128.0  # signed: negative=green, positive=red
+    b = b_raw - 128.0  # signed: negative=blue,  positive=yellow
+
+    chroma = math.sqrt(a * a + b * b)
+
+    # Chromatic: classify by hue angle in a*b* plane.
+    # Threshold lowered from 22 → 15 so partially-saturated red patches
+    # (e.g. shadowed or distant car panels) are not dropped as achromatic.
+    if chroma >= 15:
+        angle = math.degrees(math.atan2(b, a))  # [-180, 180]
+        # Red:    -30 to  45  (a* >> 0; extended to catch warm/orange-red;
+        #                       real red cars in CARLA land at ~20-35°)
+        # Orange:  45 to  65
+        # Yellow:  65 to  80  (b* >> 0)
+        # Green:   80 to 160  (a* << 0)
+        # Blue:  -160 to -30  (b* << 0)
+        if -30 <= angle < 45:
             return "red"
-        elif h_val < 25:
+        elif 45 <= angle < 65:
             return "orange"
-        elif h_val < 35:
+        elif 65 <= angle < 80:
             return "yellow"
-        elif h_val < 85:
+        elif 80 <= angle <= 160 or -180 <= angle < -160:
             return "green"
         else:
             return "blue"
-    if v_val < 80:
+
+    # Achromatic: classify by lightness (L in [0, 255] in OpenCV)
+    if L < 80:
         return "dark"
-    elif v_val > 180:
+    elif L > 200:
         return "light"
     return "gray"
 
 
 def _dominant_color_from_crop(crop_bgr: np.ndarray, grid_size: int = 4):
-    """Return (dominant_color_str, votes_dict) using patch-based HSV voting."""
+    """Return (dominant_color_str, votes_dict) using patch-based LAB voting."""
     if crop_bgr is None or crop_bgr.size == 0:
         return "unknown", {}
 
-    hsv = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2HSV)
-    h, w = hsv.shape[:2]
+    lab = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2LAB)
+    h, w = lab.shape[:2]
     if h < 2 or w < 2:
         return "unknown", {}
 
@@ -64,12 +91,12 @@ def _dominant_color_from_crop(crop_bgr: np.ndarray, grid_size: int = 4):
 
     for i in range(gs):
         for j in range(gs):
-            patch = hsv[i * ph: min((i + 1) * ph, h),
+            patch = lab[i * ph: min((i + 1) * ph, h),
                         j * pw: min((j + 1) * pw, w)]
             if patch.size == 0:
                 continue
             mean_px = np.mean(patch.reshape(-1, 3), axis=0)
-            color = _classify_hsv_pixel(*mean_px)
+            color = _classify_lab_patch(*mean_px)
             votes[color] = votes.get(color, 0) + 1
 
     if not votes:
@@ -80,15 +107,28 @@ def _dominant_color_from_crop(crop_bgr: np.ndarray, grid_size: int = 4):
 
 def _get_track_color(frame_bgr: np.ndarray, x: float, y: float,
                      w: float, h: float) -> tuple[str, dict]:
-    """Extract dominant color for a track's bounding box crop."""
+    """Extract dominant color for a track's bounding box crop.
+
+    For very small crops (< 8px in either dimension), the crop is upscaled to
+    at least 16px so the LAB classifier can still vote rather than returning
+    "unknown".  This keeps color evidence alive for small/distant objects.
+    """
     H, W = frame_bgr.shape[:2]
     x1 = max(0, int(x))
     y1 = max(0, int(y))
     x2 = min(W, int(x + w))
     y2 = min(H, int(y + h))
-    if x2 <= x1 or y2 <= y1 or (x2 - x1) < 8 or (y2 - y1) < 8:
+    if x2 <= x1 or y2 <= y1:
         return "unknown", {}
     crop = frame_bgr[y1:y2, x1:x2]
+    ch, cw = crop.shape[:2]
+    if ch < 4 or cw < 4:
+        return "unknown", {}
+    # Upscale tiny crops so the patch-grid classifier has enough pixels
+    if ch < 16 or cw < 16:
+        scale = max(16 / ch, 16 / cw)
+        crop = cv2.resize(crop, (max(16, int(cw * scale)), max(16, int(ch * scale))),
+                          interpolation=cv2.INTER_NEAREST)
     return _dominant_color_from_crop(crop)
 
 
@@ -571,3 +611,155 @@ class SceneGraphMissionFilter:
             if kw in self.text_prompt:
                 constraints.append(spec)
         return constraints
+
+
+# ---------------------------------------------------------------------------
+# ColorReIDMatcher — re-assigns new track IDs to recently-lost tracks using
+# color + region similarity.  Addresses ID flips caused by FOV/perspective
+# changes where ByteTrack's Kalman filter diverges and starts a new ID.
+# ---------------------------------------------------------------------------
+
+class ColorReIDMatcher:
+    """
+    Post-ByteTrack re-identification using color and spatial region.
+
+    When the camera perspective shifts, an object may briefly vanish or jump
+    in predicted vs. detected position, causing ByteTrack to open a new track
+    ID.  This class detects such cases by comparing newly-appeared tracks
+    against a graveyard of recently-lost tracks.
+
+    Usage (once per frame, after tracker.update() and sg_builder.update()):
+        remap = reid.update(frame_id, alive_track_ids, frame_graph)
+        canonical_id = reid.resolve(track.track_id)
+    """
+
+    def __init__(self, max_lost_frames: int = 25, color_match_ratio: float = 0.20):
+        """
+        Args:
+            max_lost_frames:  keep a lost track in the graveyard for this many
+                              frames before expiring it.  25 frames ~ 2.5 s at 10fps.
+            color_match_ratio: fraction of color votes the target color must
+                               reach to be considered a reliable signal.
+        """
+        self.max_lost_frames = max_lost_frames
+        self.color_match_ratio = color_match_ratio
+
+        # track_id -> last known {color, color_votes, area_norm} while alive
+        # Updated every frame — used to populate graveyard at time of death.
+        self._last_known: Dict[int, dict] = {}
+        # track_id -> {color, area_norm, last_frame} — recently-lost tracks
+        self._dead: Dict[int, dict] = {}
+        # new_id -> canonical old_id (follows chain on resolve)
+        self._remap: Dict[int, int] = {}
+        self._alive: set = set()
+
+    def update(self, frame_id: int, alive_ids: set, frame_graph: Dict[str, Any]) -> Dict[int, int]:
+        """
+        Call once per frame with ALL ByteTrack IDs (not filtered subset).
+
+        Args:
+            frame_id:    current frame index
+            alive_ids:   set of track IDs ByteTrack reports as active this frame
+            frame_graph: dict from SceneGraphBuilder.update()
+        """
+        # Cache last-known color for every alive track
+        for node in frame_graph.get("nodes", []):
+            tid = node["track_id"]
+            color = node.get("color", "unknown")
+            if color != "unknown":
+                self._last_known[tid] = {
+                    "color":       color,
+                    "color_votes": node.get("color_votes", {}),
+                    "area_norm":   node.get("area_norm", 0.0),
+                }
+
+        # Move newly-lost tracks into graveyard using cached info
+        lost_ids = self._alive - alive_ids
+        for tid in lost_ids:
+            info = self._last_known.get(tid)
+            if info is not None:
+                self._dead[tid] = {**info, "last_frame": frame_id}
+
+        # Expire stale graveyard entries
+        expired = [tid for tid, info in self._dead.items()
+                   if frame_id - info["last_frame"] > self.max_lost_frames]
+        for tid in expired:
+            del self._dead[tid]
+
+        # Try to re-ID newly-appeared tracks
+        new_ids = alive_ids - self._alive
+        for new_id in new_ids:
+            if new_id in self._remap:
+                continue
+            node = self._node_by_id(frame_graph, new_id)
+            if node is None:
+                continue
+            old_id = self._find_match(node)
+            if old_id is not None:
+                self._remap[new_id] = old_id
+                del self._dead[old_id]  # consumed — don't match again
+                print(f"[ColorReID] remapped track {new_id} → {old_id} "
+                      f"(color={node.get('color')}, frame={frame_id})")
+
+        self._alive = set(alive_ids)
+        return dict(self._remap)
+
+    def resolve(self, track_id: int) -> int:
+        """Return the canonical ID for track_id, following the remap chain."""
+        seen: set = set()
+        while track_id in self._remap and track_id not in seen:
+            seen.add(track_id)
+            track_id = self._remap[track_id]
+        return track_id
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _node_by_id(frame_graph: Dict[str, Any], track_id: int) -> Optional[Dict[str, Any]]:
+        for n in frame_graph.get("nodes", []):
+            if n["track_id"] == track_id:
+                return n
+        return None
+
+    def _find_match(self, node: Dict[str, Any]) -> Optional[int]:
+        """Return the best-matching dead track_id, or None.
+
+        Matching is intentionally color-first: during a FOV/perspective change
+        the object's region shifts, so region is a bad discriminator.
+        Area similarity guards against merging tracks of very different scales.
+        """
+        color = node.get("color", "unknown")
+        if color == "unknown":
+            return None
+
+        # Require enough color evidence in the new track's first frame
+        votes = node.get("color_votes", {})
+        total = sum(votes.values()) or 1
+        if votes.get(color, 0) / total < self.color_match_ratio:
+            return None
+
+        area = node.get("area_norm", 0.0)
+
+        best_id: Optional[int] = None
+        best_score = 0.0
+
+        for tid, info in self._dead.items():
+            if info["color"] != color:
+                continue
+
+            # Area similarity (ratio in [0,1]; 1 = identical scale)
+            da = info.get("area_norm", 0.0)
+            if area > 0 and da > 0:
+                area_score = min(area, da) / max(area, da)
+            else:
+                area_score = 0.5
+
+            # Single score: pure area similarity (color already gated above)
+            if area_score > best_score:
+                best_score = area_score
+                best_id = tid
+
+        # Need reasonable area match to avoid merging far-apart same-color cars
+        return best_id if best_score >= 0.30 else None

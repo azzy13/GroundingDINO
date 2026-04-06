@@ -289,4 +289,16 @@ SUMMARY ACROSS ALL SCENARIOS
 Results saved to: outputs/carla_eval_2026-02-16_0621
 ============================================================
 
-# final run bytetrack
+# LAB CLASSIFIER
+============================================================
+SUMMARY ACROSS ALL SCENARIOS
+============================================================
+  Avg Semantic Precision:        0.9388
+  Avg Semantic Recall:           0.7408
+  Avg Prompt Coverage Ratio:     0.7664
+  Avg Distractor Confusion Rate: 0.0259
+  Total Semantic ID Switches:    0
+
+Results saved to: outputs/carla_eval_2026-04-06_0542
+Log saved to: outputs/carla_eval_2026-04-06_0542/run_log.txt
+============================================================
