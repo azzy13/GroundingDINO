@@ -163,7 +163,7 @@ export CUDA_HOME=/usr/local/cuda
 1.Clone the GroundingDINO repository from GitHub.
 
 ```bash
-git clone https://github.com/IDEA-Research/GroundingDINO.git
+git clone https://github.com/azzy13/GroundingDINO.git
 ```
 
 2. Change the current directory to the GroundingDINO folder.
