@@ -140,6 +140,59 @@ python3 eval/visualize_scene_graph.py \
 
 ---
 
+## Dataset
+
+The CARLA Referring Target Evaluation Set is available on Hugging Face:
+
+**[azzy13/carla_referring_target_evaluation_set](https://huggingface.co/datasets/azzy13/carla_referring_target_evaluation_set)**
+
+A synthetic benchmark for **referring expression tracking** — the task of tracking a single described target (e.g. "red sedan") while ignoring all other vehicles in the scene. Unlike standard MOT datasets that evaluate all objects, this benchmark tests whether a tracker can isolate and follow exactly the object that matches the natural language description across challenging conditions including weather variation, lighting changes, camera motion, and the presence of visually similar distractors.
+
+24 scenarios generated in CARLA simulator (Towns 10HD, 03, 05). Each scenario provides per-frame ground-truth bounding boxes with `is_target` flags distinguishing the referred object from distractors.
+
+**Evaluation metrics** (computed by `eval_carla.py`):
+
+| Metric | Description |
+|--------|-------------|
+| **Semantic Precision** | Fraction of tracked detections that are actually the target |
+| **Semantic Recall** | Fraction of target frames where the target was tracked |
+| **Prompt Coverage Ratio** | Combined measure of how consistently the prompt-described object is tracked |
+| **Distractor Confusion Rate** | How often a non-target object was incorrectly tracked as the target |
+| **Semantic ID Switches (SID)** | Number of times the tracker switched from the correct target to a distractor or lost it entirely |
+
+| # | Scenario | Camera | Description |
+|---|----------|--------|-------------|
+| 1 | `clear_day_baseline` | static | High sun, clear sky — baseline lighting |
+| 2 | `overcast` | static | Heavy cloud cover, flat diffuse light |
+| 3 | `heavy_rain` | loose-follow | Rain with wet road reflections |
+| 4 | `dusk_golden_hour` | loose-follow | Low sun angle, warm directional light |
+| 5 | `night` | loose-follow | Night lighting |
+| 6 | `dense_fog` | loose-follow | Low visibility fog |
+| 7 | `color_confusable` | loose-follow | Other red vehicles present as distractors |
+| 8 | `same_color_diff_class` | loose-follow | Same color, different vehicle class distractors |
+| 9 | `high_density` | static | Dense mixed traffic |
+| 10 | `high_altitude` | static | Elevated camera angle |
+| 11 | `low_altitude_steep` | loose-follow | Low steep camera angle |
+| 12 | `side_follow` | loose-follow | Side-on camera perspective |
+| 13 | `town03_suburban` | static | Suburban map (Town03) |
+| 14 | `town05_highway` | loose-follow | Highway map (Town05) |
+| 15 | `multiple_red_sedans` | static | 3 target vehicles simultaneously |
+| 16 | `long_sequence` | static | Extended duration sequence |
+| 17 | `dense_urban_traffic` | static | Dense urban scene |
+| 18–24 | `follow_base` / `follow_variant_*` | follow | Follow-camera variants with different spawn points and lighting |
+
+Download and point `eval_carla.py` at it:
+
+```bash
+hf download azzy13/carla_referring_target_evaluation_set --repo-type dataset --local-dir dataset/carla_eval/eval_scenarios
+
+python3 eval/eval_carla.py \
+  --carla_scenarios dataset/carla_eval/eval_scenarios \
+  --tracker clip --fp16
+```
+
+---
+
 ## Weights
 
 | File | Description |
