@@ -62,7 +62,7 @@ def extract_frames(video_path: str, frames_dir: str) -> Tuple[int, float, int, i
 
 # ===== MOT result reading / rendering =====
 
-def read_mot_results(mot_txt: str) -> DefaultDict[int, List[Tuple[int, float, float, float, float]]]:
+def read_mot_results(mot_txt: str) -> DefaultDict[int, List[Tuple]]:
     per_frame: DefaultDict[int, List] = defaultdict(list)
     if not os.path.isfile(mot_txt):
         return per_frame
@@ -74,12 +74,14 @@ def read_mot_results(mot_txt: str) -> DefaultDict[int, List[Tuple[int, float, fl
             parts = line.split(",")
             if len(parts) < 6:
                 continue
+            score = float(parts[6]) if len(parts) > 6 else 1.0
             per_frame[int(float(parts[0]))].append((
                 int(float(parts[1])),   # track id
                 float(parts[2]),        # x
                 float(parts[3]),        # y
                 float(parts[4]),        # w
                 float(parts[5]),        # h
+                score,                  # confidence
             ))
     return per_frame
 
@@ -101,10 +103,16 @@ def write_tracked_video(frames_dir: str, mot_txt: str, out_path: str,
         img = cv2.imread(str(p), cv2.IMREAD_COLOR)
         if img is None:
             continue
-        for (tid, x, y, w, h) in per_frame.get(int(p.stem), []):
+        for (tid, x, y, w, h, score) in per_frame.get(int(p.stem), []):
             xi, yi, wi, hi = int(x), int(y), int(w), int(h)
             cv2.rectangle(img, (xi, yi), (xi + wi, yi + hi), (0, 255, 0), 2)
+            # ID on the top-left
             cv2.putText(img, f"ID:{tid}", (xi, max(0, yi - 8)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            # Confidence on the top-right of the bbox
+            score_text = f"{score:.2f}"
+            (tw, _), _ = cv2.getTextSize(score_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+            cv2.putText(img, score_text, (xi + wi - tw, max(0, yi - 8)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         writer.write(img)
 

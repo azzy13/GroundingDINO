@@ -21,20 +21,34 @@ Built on top of [GroundingDINO](https://github.com/IDEA-Research/GroundingDINO),
 **Requirements:** Python 3.10, CUDA-capable GPU
 
 ```bash
-# 1. Clone the repo
 git clone https://github.com/azzy13/GroundingDINO.git
 cd GroundingDINO
-
-# 2. Create and activate the conda environment
 conda create -n env_dino python=3.10
 conda activate env_dino
-
-# 3. Install dependencies
 pip install -r requirements.txt
-
-# 4. Build and install GroundingDINO (compiles the CUDA ops)
-pip install -e .
+pip install -e . --no-build-isolation
 ```
+
+> `--no-build-isolation` is required so the build step can find the already-installed torch when compiling the CUDA ops.
+
+Key dependencies installed by `requirements.txt`:
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `torch` | ≤ 2.1.2 | Core deep learning |
+| `torchvision` | 0.16.x | Image transforms |
+| `transformers` | 4.49.0 | Florence-2 detector adapter |
+| `clip` | 1.0 | CLIP embeddings for tracking and filtering |
+| `opencv-python` | — | Frame processing and video I/O |
+| `motmetrics` | 1.4.0 | MOT evaluation (MOTA, IDF1, etc.) |
+| `optuna` | 4.6.0 | Hyperparameter search |
+| `lap` | 0.5.x | Linear assignment for tracker matching |
+| `cython-bbox` | 0.1.5 | Fast IoU computation |
+| `pandas` | — | GT loading and results aggregation |
+| `timm` | — | Backbone model support |
+| `supervision` | ≥ 0.22.0 | Detection utilities |
+| `accelerate` | — | Florence-2 inference |
+
 ---
 
 ## Quick Start
@@ -42,11 +56,7 @@ pip install -e .
 ### Run on a video
 
 ```bash
-python3 demo/inference_w_worker.py \
-  --video    videos/carla1.mp4 \
-  --output   outputs/annotated.mp4 \
-  --text-prompt "red car." \
-  --fp16
+python3 demo/inference_w_worker.py --video videos/carla1.mp4 --output outputs/annotated.mp4 --text-prompt "red car." --fp16
 ```
 
 This runs the full pipeline: GroundingDINO detection → ByteTrack → scene graph mission filter → color re-ID → annotated video output.
@@ -80,22 +90,31 @@ All eval scripts share the same core flags:
 ### VisDrone
 
 ```bash
-python3 eval/eval_visdrone.py \
-  --data_root dataset/visdrone_mot_format --split val \
-  --text_prompt "car. pedestrian." \
-  --box_threshold 0.4 --text_threshold 0.8 \
-  --track_thresh 0.45 --match_thresh 0.85 \
-  --weights weights/swinb_light_visdrone_ft_best.pth \
-  --tracker clip --devices 0,1 --jobs 2 --fp16 --save_video
+python3 eval/eval_visdrone.py --data_root dataset/visdrone_mot_format --split val --text_prompt "car. pedestrian." --box_threshold 0.4 --text_threshold 0.8 --track_thresh 0.45 --match_thresh 0.85 --weights weights/swinb_light_visdrone_ft_best.pth --tracker clip --devices 0,1 --jobs 2 --fp16 --save_video
+```
+
+### UAVDT
+
+```bash
+python3 eval/eval_uavdt.py --data_root dataset/UAV --split test --text_prompt "car. van. bus." --box_threshold 0.4 --text_threshold 0.8 --track_thresh 0.45 --match_thresh 0.85 --weights weights/swinb_light_visdrone_ft_best.pth --devices 0,1 --jobs 2 --fp16 --save_video
+```
+
+### UA-DETRAC
+
+```bash
+python3 eval/eval_uadetrac.py --data_root dataset/DETRAC --split test --text_prompt "car. van. bus." --tracker clip --devices 0,1 --jobs 2 --fp16
 ```
 
 ### KITTI
 
 ```bash
-python3 eval/eval_new.py \
-  --images dataset/kitti/validation/image_02 \
-  --labels dataset/kitti/validation/label_02 \
-  --devices 0,1 --jobs 2 --fp16
+python3 eval/eval_new.py --images dataset/kitti/validation/image_02 --labels dataset/kitti/validation/label_02 --devices 0,1 --jobs 2 --fp16
+```
+
+### MOT17
+
+```bash
+python3 eval/eval_mot17.py --data_root dataset/MOT17 --split train --detector dino --tracker bytetrack --devices 0,1 --jobs 2 --fp16
 ```
 
 ### ReferKITTI (referring expression tracking)
@@ -103,21 +122,13 @@ python3 eval/eval_new.py \
 Uses optimized parameters from Optuna Trial 532 (combined score 0.214):
 
 ```bash
-python3 eval/eval_referkitti.py \
-  --data_root dataset/referkitti/ \
-  --weights weights/swinb_light_visdrone_ft_best.pth \
-  --tracker bytetrack --devices 0,1 --jobs 2 --fp16 \
-  --box_threshold 0.45 --text_threshold 0.36 \
-  --track_thresh 0.45 --match_thresh 0.80 --track_buffer 110 \
-  --save_video
+python3 eval/eval_referkitti.py --data_root dataset/referkitti/ --weights weights/swinb_light_visdrone_ft_best.pth --tracker clip --devices 0,1 --jobs 2 --fp16 --box_threshold 0.455 --text_threshold 0.363 --track_thresh 0.45 --match_thresh 0.80 --track_buffer 110 --lambda_weight 0.568 --text_gate_mode penalty --text_gate_weight 0.736 --referring_mode threshold --referring_thresh 0.263 --small_box_area_thresh 4000 --save_video
 ```
 
 ### CARLA (prompt-compliance evaluation)
 
 ```bash
-python3 eval/eval_carla.py \
-  --carla_scenarios dataset/carla_eval/eval_scenarios \
-  --tracker clip --fp16
+python3 eval/eval_carla.py --carla_scenarios dataset/carla_eval/eval_scenarios --tracker clip --fp16
 ```
 
 Reports Semantic Precision, Semantic Recall, Prompt Coverage Ratio, and Semantic ID Switches per scenario.
@@ -144,19 +155,13 @@ Best ReferKITTI parameters are recorded in `TRIAL_532_BEST_PARAMS.txt`.
 Run detection + tracking on a single sequence and save the per-frame scene graph as `.jsonl`:
 
 ```bash
-python3 eval/run_scene_graph_demo.py \
-  --seq scenario_001 \
-  --img_folder dataset/carla_eval/eval_scenarios/scenario_001/images \
-  --out /tmp/sg_demo/
+python3 eval/run_scene_graph_demo.py --seq scenario_001 --img_folder dataset/carla_eval/eval_scenarios/scenario_001/images --out /tmp/sg_demo/
 ```
 
 Visualize the saved scene graph:
 
 ```bash
-python3 eval/visualize_scene_graph.py \
-  --jsonl /tmp/sg_demo/scenario_001_scene_graphs.jsonl \
-  --images dataset/carla_eval/eval_scenarios/scenario_001/images \
-  --out /tmp/sg_demo/viz/
+python3 eval/visualize_scene_graph.py --jsonl /tmp/sg_demo/scenario_001_scene_graphs.jsonl --images dataset/carla_eval/eval_scenarios/scenario_001/images --out /tmp/sg_demo/viz/
 ```
 
 ---
@@ -202,17 +207,12 @@ A synthetic benchmark for **referring expression tracking** — the task of trac
 | 17 | `dense_urban_traffic` | static | Dense urban scene |
 | 18–24 | `follow_base` / `follow_variant_*` | follow | Follow-camera variants with different spawn points and lighting |
 
-Download and point `eval_carla.py` at it:
+Download and run:
 
 ```bash
-hf download azzy13/carla_referring_target_evaluation_set eval_scenarios.zip \
-  --repo-type dataset --local-dir dataset/carla_eval/
-
+hf download azzy13/carla_referring_target_evaluation_set eval_scenarios.zip --repo-type dataset --local-dir dataset/carla_eval/
 unzip dataset/carla_eval/eval_scenarios.zip -d dataset/carla_eval/
-
-python3 eval/eval_carla.py \
-  --carla_scenarios dataset/carla_eval/eval_scenarios \
-  --tracker clip --fp16
+python3 eval/eval_carla.py --carla_scenarios dataset/carla_eval/eval_scenarios --tracker clip --fp16
 ```
 
 ---
@@ -262,7 +262,7 @@ Hue-neighbor tolerance is applied (orange patches count as supporting evidence
 for a "red" target). A presence-based threshold accepts the target color if it
 reaches `min_target_patches` votes even if it is not the majority.
 
-LAB approach is clearly superior.
+LAB approach is clearly superior. 
 
 ### Scale-Aware Detection
 
@@ -284,7 +284,6 @@ motion label (stationary / moving / approaching / receding), and heading vector 
 10-frame position history. Edges carry pairwise spatial relations (`left-of`, `above`,
 `near`, `overlapping`, etc.) and a `visually-similar` edge when CLIP embeddings agree.
 
-
 ### `SceneGraphMissionFilter`
 
 Parses color and spatial constraints from the text prompt automatically. Accumulates
@@ -297,7 +296,3 @@ requires all constraints to pass.
 When a track is lost and a new track appears with the same dominant color and similar
 area, the new ID is remapped to the old canonical ID. Lost tracks are held in a
 graveyard for `max_lost_frames` (default 25) frames before expiry.
-
----
-
-

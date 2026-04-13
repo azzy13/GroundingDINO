@@ -356,7 +356,7 @@ class Worker:
                         out_id = color_reid.resolve(t.track_id) if color_reid else t.track_id
                         f_res.write(
                             f"{frame_id},{out_id},{x:.2f},{y:.2f},"
-                            f"{w:.2f},{h:.2f},1,-1,-1,-1\n"
+                            f"{w:.2f},{h:.2f},{t.score:.3f},-1,-1,-1\n"
                         )
 
                 # Video
