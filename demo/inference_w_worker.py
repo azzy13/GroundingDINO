@@ -15,9 +15,11 @@ from pathlib import Path
 from typing import DefaultDict, List, Tuple
 from collections import defaultdict
 
-# worker_simple lives under eval/
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from eval.worker_simple import Worker
+# Add project root and eval/ so worker_simple and scene_graph are importable directly
+_repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, _repo_root)
+sys.path.insert(0, os.path.join(_repo_root, "eval"))
+from worker_simple import Worker
 
 # ===== Defaults =====
 DEFAULT_CONFIG_PATH  = "groundingdino/config/GroundingDINO_SwinB_cfg.py"
