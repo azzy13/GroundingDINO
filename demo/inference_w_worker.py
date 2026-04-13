@@ -11,8 +11,9 @@ import time
 import glob
 import shutil
 import argparse
+import numpy as np
 from pathlib import Path
-from typing import DefaultDict, List, Tuple
+from typing import DefaultDict, List, Optional, Tuple
 from collections import defaultdict
 
 # Add project root and eval/ so worker_simple and scene_graph are importable directly
@@ -52,7 +53,8 @@ def extract_frames(video_path: str, frames_dir: str) -> Tuple[int, float, int, i
         if not ok:
             break
         n += 1
-        cv2.imwrite(os.path.join(frames_dir, f"{n}.png"), frame)
+        cv2.imwrite(os.path.join(frames_dir, f"{n}.jpg"), frame,
+                    [cv2.IMWRITE_JPEG_QUALITY, 95])
     cap.release()
 
     if n == 0:
@@ -86,12 +88,25 @@ def read_mot_results(mot_txt: str) -> DefaultDict[int, List[Tuple]]:
     return per_frame
 
 
+def _load_depth_model(pretrained: str = "Ruicheng/moge-2-vits-normal"):
+    """Load MoGe v2 depth model onto GPU."""
+    import torch
+    from moge.model import import_model_class_by_version
+    MoGeModel = import_model_class_by_version("v2")
+    model = MoGeModel.from_pretrained(pretrained).cuda().eval()
+    return model
+
+
 def write_tracked_video(frames_dir: str, mot_txt: str, out_path: str,
-                        fps: float, size: Tuple[int, int]) -> None:
+                        fps: float, size: Tuple[int, int],
+                        depth_model=None) -> None:
+    import torch
+
     W, H = size
     per_frame = read_mot_results(mot_txt)
     frame_files = sorted(
-        (Path(p) for p in glob.glob(os.path.join(frames_dir, "*.png"))),
+        (Path(p) for p in glob.glob(os.path.join(frames_dir, "*.jpg"))
+                         + glob.glob(os.path.join(frames_dir, "*.png"))),
         key=lambda p: int(p.stem),
     )
 
@@ -103,7 +118,20 @@ def write_tracked_video(frames_dir: str, mot_txt: str, out_path: str,
         img = cv2.imread(str(p), cv2.IMREAD_COLOR)
         if img is None:
             continue
-        for (tid, x, y, w, h, score) in per_frame.get(int(p.stem), []):
+
+        # --- depth estimation (optional, skipped on empty frames) ---
+        frame_tracks = per_frame.get(int(p.stem), [])
+        points_np: Optional[np.ndarray] = None
+        if depth_model is not None and frame_tracks:
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img_t = torch.from_numpy(img_rgb).float() / 255.0
+            img_t = img_t.permute(2, 0, 1).cuda()   # [3, H, W]
+            with torch.no_grad():
+                result = depth_model.infer(img_t, resolution_level=7, use_fp16=True)
+            # result['points'] is [H_out, W_out, 3] in camera space (metres)
+            points_np = result["points"].cpu().numpy()
+
+        for (tid, x, y, w, h, score) in frame_tracks:
             xi, yi, wi, hi = int(x), int(y), int(w), int(h)
             cv2.rectangle(img, (xi, yi), (xi + wi, yi + hi), (0, 255, 0), 2)
             # ID on the top-left
@@ -114,6 +142,18 @@ def write_tracked_video(frames_dir: str, mot_txt: str, out_path: str,
             (tw, _), _ = cv2.getTextSize(score_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
             cv2.putText(img, score_text, (xi + wi - tw, max(0, yi - 8)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            # Distance at bbox centre (bottom-left of bbox)
+            if points_np is not None:
+                H_out, W_out = points_np.shape[:2]
+                cx = x + w / 2
+                cy = y + h / 2
+                px = int(max(0, min(cx / W * W_out, W_out - 1)))
+                py = int(max(0, min(cy / H * H_out, H_out - 1)))
+                dist = float(np.linalg.norm(points_np[py, px]))
+                dist_text = f"{dist:.1f}m"
+                cv2.putText(img, dist_text, (xi, min(H - 4, yi + hi + 16)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
         writer.write(img)
 
     writer.release()
@@ -167,6 +207,12 @@ def main():
                     help="Disable ColorReIDMatcher (track ID recovery after FOV changes)")
     ap.add_argument("--reid-max-lost-frames", type=int, default=25,
                     help="Frames a lost track stays in re-ID graveyard (default 25)")
+
+    # Depth estimation
+    ap.add_argument("--depth", action="store_true",
+                    help="Enable MoGe-2 monocular depth — displays camera-to-object distance on each bbox")
+    ap.add_argument("--depth-model", default="Ruicheng/moge-2-vits-normal",
+                    help="MoGe v2 pretrained model ID (default: moge-2-vits-normal)")
 
     args = ap.parse_args()
 
@@ -230,12 +276,21 @@ def main():
     print(f"[worker]  {num_frames} frames in {time.time()-t1:.2f}s "
           f"({num_frames / max(1e-6, time.time()-t1):.1f} FPS)")
 
-    # 4) Render annotated video
+    # 4) Load depth model (optional)
+    depth_model = None
+    if args.depth:
+        print(f"[depth]   loading MoGe-2 model '{args.depth_model}' ...")
+        t_dm = time.time()
+        depth_model = _load_depth_model(args.depth_model)
+        print(f"[depth]   model ready  ({time.time()-t_dm:.2f}s)")
+
+    # 5) Render annotated video
     t2 = time.time()
-    write_tracked_video(seq_dir, mot_file, output_path, fps=fps, size=(W, H))
+    write_tracked_video(seq_dir, mot_file, output_path, fps=fps, size=(W, H),
+                        depth_model=depth_model)
     print(f"[render]  wrote {output_path}  ({time.time()-t2:.2f}s)")
 
-    # 5) Cleanup
+    # 6) Cleanup
     if not args.keep_frames:
         shutil.rmtree(work_root, ignore_errors=True)
 

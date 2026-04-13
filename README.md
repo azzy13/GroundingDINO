@@ -79,28 +79,10 @@ All eval scripts share the same core flags:
 python3 eval/eval_visdrone.py --data_root dataset/visdrone_mot_format --split val --text_prompt "car. pedestrian." --box_threshold 0.4 --text_threshold 0.8 --track_thresh 0.45 --match_thresh 0.85 --weights weights/swinb_light_visdrone_ft_best.pth --tracker clip --devices 0,1 --jobs 2 --fp16 --save_video
 ```
 
-### UAVDT
-
-```bash
-python3 eval/eval_uavdt.py --data_root dataset/UAV --split test --text_prompt "car. van. bus." --box_threshold 0.4 --text_threshold 0.8 --track_thresh 0.45 --match_thresh 0.85 --weights weights/swinb_light_visdrone_ft_best.pth --devices 0,1 --jobs 2 --fp16 --save_video
-```
-
-### UA-DETRAC
-
-```bash
-python3 eval/eval_uadetrac.py --data_root dataset/DETRAC --split test --text_prompt "car. van. bus." --tracker clip --devices 0,1 --jobs 2 --fp16
-```
-
 ### KITTI
 
 ```bash
 python3 eval/eval_new.py --images dataset/kitti/validation/image_02 --labels dataset/kitti/validation/label_02 --devices 0,1 --jobs 2 --fp16
-```
-
-### MOT17
-
-```bash
-python3 eval/eval_mot17.py --data_root dataset/MOT17 --split train --detector dino --tracker bytetrack --devices 0,1 --jobs 2 --fp16
 ```
 
 ### ReferKITTI (referring expression tracking)
@@ -235,10 +217,6 @@ Per-crop classification:
 Crops narrower than 8 px in either dimension are upscaled to 16 px with
 nearest-neighbor interpolation before classification, so tiny but real detections
 still contribute color evidence from their first frame rather than returning `"unknown"`.
-
-Color votes are accumulated by `SceneGraphMissionFilter` over a 15-frame rolling
-window per track. A track's color score is the fraction of accumulated votes
-belonging to the target color.
 
 ### HSV Patch Voting (`worker_clean.py`) — CLIP Pipeline
 
