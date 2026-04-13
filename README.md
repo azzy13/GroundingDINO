@@ -26,8 +26,8 @@ git clone https://github.com/azzy13/GroundingDINO.git
 cd GroundingDINO
 
 # 2. Create and activate the conda environment
-conda create -n dino_real python=3.10
-conda activate dino_real
+conda create -n env_dino python=3.10
+conda activate env_dino
 
 # 3. Install dependencies
 pip install -r requirements.txt
