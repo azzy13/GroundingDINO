@@ -16,6 +16,27 @@ Built on top of [GroundingDINO](https://github.com/IDEA-Research/GroundingDINO),
 
 ---
 
+## Setup
+
+**Requirements:** Python 3.10, CUDA-capable GPU
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/azzy13/GroundingDINO.git
+cd GroundingDINO
+
+# 2. Create and activate the conda environment
+conda create -n dino_real python=3.10
+conda activate dino_real
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Build and install GroundingDINO (compiles the CUDA ops)
+pip install -e .
+```
+---
+
 ## Quick Start
 
 ### Run on a video
@@ -184,7 +205,10 @@ A synthetic benchmark for **referring expression tracking** — the task of trac
 Download and point `eval_carla.py` at it:
 
 ```bash
-hf download azzy13/carla_referring_target_evaluation_set --repo-type dataset --local-dir dataset/carla_eval/eval_scenarios
+hf download azzy13/carla_referring_target_evaluation_set eval_scenarios.zip \
+  --repo-type dataset --local-dir dataset/carla_eval/
+
+unzip dataset/carla_eval/eval_scenarios.zip -d dataset/carla_eval/
 
 python3 eval/eval_carla.py \
   --carla_scenarios dataset/carla_eval/eval_scenarios \
