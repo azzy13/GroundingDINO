@@ -23,8 +23,10 @@ Built on top of [GroundingDINO](https://github.com/IDEA-Research/GroundingDINO),
 ```bash
 git clone https://github.com/azzy13/GroundingDINO.git
 cd GroundingDINO
+
 conda create -n env_dino python=3.10
 conda activate env_dino
+
 pip install -r requirements.txt
 pip install -e . --no-build-isolation
 ```
@@ -32,22 +34,6 @@ pip install -e . --no-build-isolation
 > `--no-build-isolation` is required so the build step can find the already-installed torch when compiling the CUDA ops.
 
 Key dependencies installed by `requirements.txt`:
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `torch` | ≤ 2.1.2 | Core deep learning |
-| `torchvision` | 0.16.x | Image transforms |
-| `transformers` | 4.49.0 | Florence-2 detector adapter |
-| `clip` | 1.0 | CLIP embeddings for tracking and filtering |
-| `opencv-python` | — | Frame processing and video I/O |
-| `motmetrics` | 1.4.0 | MOT evaluation (MOTA, IDF1, etc.) |
-| `optuna` | 4.6.0 | Hyperparameter search |
-| `lap` | 0.5.x | Linear assignment for tracker matching |
-| `cython-bbox` | 0.1.5 | Fast IoU computation |
-| `pandas` | — | GT loading and results aggregation |
-| `timm` | — | Backbone model support |
-| `supervision` | ≥ 0.22.0 | Detection utilities |
-| `accelerate` | — | Florence-2 inference |
 
 ---
 
